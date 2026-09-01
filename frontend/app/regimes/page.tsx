@@ -31,7 +31,7 @@ type Estudo = {
 const dados = bruto as Estudo;
 
 export const metadata: Metadata = {
-  title: "Regimes de mercado — ia-trading",
+  title: "Regimes — V.A.L Finance",
   description: "320 backtests em 64 janelas: o desempenho muda por regime, mas o prêmio é pequeno.",
 };
 

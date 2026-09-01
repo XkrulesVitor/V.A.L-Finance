@@ -1,4 +1,6 @@
-# ia-trading — protótipo
+# V.A.L Finance
+
+*Protótipo — repositório `V.A.L-Finance`, pasta de trabalho `ia-trading/`.*
 
 IA que acompanha o mercado de cripto (Binance) e decide operações, começando em conta testnet.
 
@@ -153,7 +155,11 @@ A página é **só leitura** de propósito: ela usa a chave `anon`, que é públ
 
   ⚠️ **Nunca** coloque aqui a chave secreta (`sb_secret_...` / `service_role`). Tudo com prefixo `NEXT_PUBLIC_` vai para o navegador, e a chave secreta ignora RLS — daria escrita a qualquer visitante.
 
-  As tabelas precisam de `grant select` para `anon`, o que o `supabase/schema.sql` já faz. Se as páginas subirem vazias, é isso que checar primeiro.
+  ⚠️ **Adicionar as variáveis depois de um deploy não conserta esse deploy.** Variáveis `NEXT_PUBLIC_*` são embutidas no bundle **durante o build** — o painel mostra "Added" e o site continua quebrado até o próximo build. Depois de configurá-las: *Deployments → ⋯ → Redeploy*, com *Use existing Build Cache* **desmarcado**.
+
+  Se faltar alguma variável, o site não quebra: mostra uma tela dizendo qual falta e como resolver.
+
+  As tabelas precisam de `grant select` para `anon`, o que o `supabase/schema.sql` já faz. Se as páginas subirem vazias, é isso que checar depois.
 
   Páginas: `/` (pipeline e indicadores), `/backtests` (rodadas + cota do LLM), `/regimes` (estudo de 320 backtests, snapshot estático).
 - **Backend:** no Render, "New → Blueprint" apontando pro repo (usa o `render.yaml` — ajuste o `schedule` se quiser outra frequência), ou "New → Cron Job" manual com `pip install -r backend/requirements.txt` como build command e `python backend/main.py` como start command. Adicione as variáveis de ambiente do `.env.example`.

@@ -1,4 +1,4 @@
-# Arquitetura e decisões do projeto — ia-trading
+# Arquitetura e decisões do projeto — V.A.L Finance
 
 *Última atualização: 10/08/2026 — reflete o estado depois do Passo 6 do roteiro (Risk Engine).*
 

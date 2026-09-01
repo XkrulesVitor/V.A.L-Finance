@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 import { calcularUso, type RunDeCota } from "@/lib/cota";
 import { CotaDiaria } from "./CotaDiaria";
 import type { Metadata } from "next";
+import { ConfiguracaoPendente } from "@/app/ConfiguracaoPendente";
 
 export const metadata: Metadata = {
-  title: "Backtests — ia-trading",
+  title: "Backtests — V.A.L Finance",
   description: "Rodadas gravadas, agrupadas por período, e o consumo da cota diária do LLM.",
 };
 
@@ -124,6 +125,11 @@ function Metrica({ rotulo, valor, dica }: { rotulo: string; valor: string; dica?
 }
 
 export default async function Backtests() {
+  // Sem as variáveis, consultar o Supabase estoura com uma mensagem
+  // que não ajuda. Melhor dizer o que falta.
+  const faltando = variaveisFaltando();
+  if (faltando.length) return <ConfiguracaoPendente faltando={faltando} />;
+
   const { runs, ultimaDecisao } = await carregar();
 
   // Agrupa por período: comparar rodadas de janelas diferentes é comparar

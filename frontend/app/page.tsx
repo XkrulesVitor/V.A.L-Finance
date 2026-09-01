@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getSupabaseClient } from "@/lib/supabase";
+import { ConfiguracaoPendente } from "@/app/ConfiguracaoPendente";
+import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 
 export const metadata: Metadata = {
-  title: "Pipeline — ia-trading",
+  title: "Pipeline — V.A.L Finance",
   description: "Último ciclo de coleta e indicadores de cada ativo.",
 };
 
@@ -99,6 +100,11 @@ const PASSOS = [
 ] as const;
 
 export default async function Home() {
+  // Sem as variáveis, consultar o Supabase estoura com uma mensagem
+  // que não ajuda. Melhor dizer o que falta.
+  const faltando = variaveisFaltando();
+  if (faltando.length) return <ConfiguracaoPendente faltando={faltando} />;
+
   const { decisions, total } = await carregar();
 
   // Um ciclo por símbolo: a lista vem ordenada por data, então o primeiro
@@ -136,7 +142,7 @@ export default async function Home() {
         </div>
 
         <h1 className="text-xl mb-2 text-[#eafff0]">
-          ia-trading <span className="text-[#5c9d78]">/ coleta e indicadores</span>
+          V.A.L Finance <span className="text-[#5c9d78]">/ coleta e indicadores</span>
         </h1>
 
         <p className="text-xs text-[#5c9d78] mb-6 max-w-2xl leading-relaxed">

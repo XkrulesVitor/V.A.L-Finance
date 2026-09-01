@@ -3,11 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "ia-trading",
+    default: "V.A.L Finance",
     template: "%s",
   },
   description:
-    "Protótipo de IA de trading em cripto: coleta indicadores, roda backtests e mede se decisões guiadas por LLM batem uma estratégia simples.",
+    "V.A.L Finance — protótipo que coleta indicadores de cripto, roda backtests e mede se decisões guiadas por LLM batem uma estratégia simples.",
   robots: { index: false, follow: false },
 };
 
