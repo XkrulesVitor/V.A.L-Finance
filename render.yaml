@@ -1,0 +1,27 @@
+services:
+  - type: cron
+    name: ia-trading-cron
+    runtime: python
+    plan: free
+    schedule: "*/15 * * * *"
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "python backend/main.py"
+    envVars:
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      # O Supabase renomeou o formato das chaves: o painel novo entrega
+      # SUPABASE_SECRET_KEY (sb_secret_...), projetos antigos tem
+      # SUPABASE_SERVICE_ROLE_KEY (JWT longo). O codigo aceita as duas --
+      # preencha no painel do Render a que o seu Supabase mostrar.
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # O cron job ainda NAO chama o cerebro -- por isso nao ha chave de
+      # LLM aqui. Ela entra no passo 8, quando main.py passar a compor
+      # cerebro + Risk Engine.

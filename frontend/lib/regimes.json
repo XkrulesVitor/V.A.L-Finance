@@ -1,0 +1,117 @@
+{
+  "gerado_em": "2026-09-01",
+  "janelas": 64,
+  "backtests": 320,
+  "contagem_regime": {
+    "alta": 30,
+    "lateral": 18,
+    "baixa": 16
+  },
+  "estrategias": [
+    "buy_and_hold",
+    "ema_crossover",
+    "rsi_reversao",
+    "macd_histograma",
+    "acima_da_ema200"
+  ],
+  "por_regime": {
+    "buy_and_hold": {
+      "alta": 50.23,
+      "lateral": -0.72,
+      "baixa": -20.83,
+      "geral": 18.14
+    },
+    "ema_crossover": {
+      "alta": 33.62,
+      "lateral": -1.83,
+      "baixa": -14.64,
+      "geral": 11.58
+    },
+    "rsi_reversao": {
+      "alta": 11.05,
+      "lateral": -0.67,
+      "baixa": -3.15,
+      "geral": 4.2
+    },
+    "macd_histograma": {
+      "alta": 0.63,
+      "lateral": -9.91,
+      "baixa": -20.93,
+      "geral": -7.72
+    },
+    "acima_da_ema200": {
+      "alta": 20.03,
+      "lateral": -10.71,
+      "baixa": -19.02,
+      "geral": 1.62
+    }
+  },
+  "vantagem": {
+    "ema_crossover": {
+      "alta": -16.61,
+      "lateral": -1.11,
+      "baixa": 6.18,
+      "geral": -6.55,
+      "venceu": 26,
+      "de": 64
+    },
+    "rsi_reversao": {
+      "alta": -39.18,
+      "lateral": 0.05,
+      "baixa": 17.68,
+      "geral": -13.93,
+      "venceu": 26,
+      "de": 64
+    },
+    "macd_histograma": {
+      "alta": -49.59,
+      "lateral": -9.19,
+      "baixa": -0.1,
+      "geral": -25.86,
+      "venceu": 15,
+      "de": 64
+    },
+    "acima_da_ema200": {
+      "alta": -30.2,
+      "lateral": -9.99,
+      "baixa": 1.81,
+      "geral": -16.51,
+      "venceu": 17,
+      "de": 64
+    }
+  },
+  "melhor_por_regime": {
+    "alta": "buy_and_hold",
+    "lateral": "rsi_reversao",
+    "baixa": "rsi_reversao"
+  },
+  "oraculo": {
+    "buy_and_hold": 18.14,
+    "perfeito": 22.57,
+    "teto": 4.43
+  },
+  "detector_real": {
+    "acertos": 15,
+    "de": 56,
+    "adaptativo": 3.47,
+    "buy_and_hold": 16.79,
+    "ganho": -13.32
+  },
+  "transicoes": {
+    "alta": {
+      "alta": 9,
+      "lateral": 10,
+      "baixa": 10
+    },
+    "lateral": {
+      "alta": 10,
+      "lateral": 4,
+      "baixa": 3
+    },
+    "baixa": {
+      "alta": 5,
+      "lateral": 3,
+      "baixa": 2
+    }
+  }
+}
