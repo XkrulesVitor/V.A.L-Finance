@@ -591,6 +591,78 @@ E o detector realista destrói valor:
 
 **O que o dado sugere como direção alternativa.** O único lugar onde a híbrida mostrou algo não-trivial foi controle de perda, não direção: na BNB ela empatou com o buy-and-hold em retorno (+25,54% vs +25,01%) com **um quarto do drawdown** (−8,56% vs −32,89%). Se há valor no sistema, a evidência aponta para "mesmo retorno, menos sofrimento" — uma história de Sharpe e drawdown — e não para "escolhe melhor a direção". Vale medir nessa métrica, não em retorno bruto.
 
+#### Ablação: o stop-loss sozinho NÃO explica o resultado da BNB
+
+A hipótese mais econômica para o +25,54% da híbrida na BNB era que o crédito fosse todo do Risk Engine: um stop por ATR corta a queda, e o cérebro seria decoração cara. Se fosse isso, a conclusão do projeto estaria praticamente escrita.
+
+`backend/backtest/stop_puro.py` testa exatamente isso — faz o que a híbrida faz **menos o LLM**: compra sempre que estiver sem posição, calcula stop e alvo pelo ATR via `avaliar_risco`, sai quando um nível é rompido, e recompra. Mesma janela, mesmo capital, mesma taxa.
+
+| BNBUSDT, 91 dias | Retorno | Sharpe | Max drawdown | Trades |
+|---|---|---|---|---|
+| `buy_and_hold` | +25,01% | 1,69 | −32,89% | 1 |
+| **`hibrida_llm_risk`** | **+25,54%** | **3,47** | **−8,56%** | 13 |
+| stop puro 2× ATR | −1,73% | 0,14 | −26,36% | 36 |
+| stop puro 4× ATR | +0,42% | 0,35 | −34,21% | 46 |
+| stop puro 8× ATR | +11,91% | 1,02 | −34,08% | 27 |
+
+**Nenhuma configuração chega perto.** A melhor delas (8× ATR) fica pior que simplesmente comprar e segurar, nas duas dimensões. A hipótese "foi só o stop" está descartada para esta janela.
+
+O mecanismo aparece na contagem de trades. O stop puro fez 27 a 46 operações; a híbrida, 13. Quando o stop puro sai, ele **recompra no candle seguinte** e é picotado de novo. A híbrida não: o cérebro respondeu `NO_TRADE` em 284 das 364 consultas, então depois de sair ela ficava fora. **A contribuição do LLM naquela janela não foi escolher a hora de entrar — foi não reentrar mal.**
+
+Também vale notar que o take-profit atrapalha em tendência de alta: o stop puro saiu no alvo 15 a 28 vezes, vendendo ganhador cedo. A híbrida segurou.
+
+**Ressalva do mesmo tamanho de sempre:** um ativo, uma janela. Isto elimina uma explicação alternativa; não prova vantagem. A replicação em ETH, SOL e XRP é o que transforma isso em evidência ou em coincidência.
+
+#### O stop-loss por ATR, sozinho, não protege — medido em 64 janelas
+
+A ablação da BNB levantou a pergunta seguinte: o stop puro é ruim só ali, ou em geral? Rodado nas mesmas 64 janelas do mapa de regimes, 192 backtests, zero chamadas de API:
+
+| Estratégia | Retorno médio | Sharpe médio | Drawdown médio | Trades médios |
+|---|---|---|---|---|
+| `buy_and_hold` | **+18,14%** | **0,96** | **−34,83%** | 1,0 |
+| stop puro 2× ATR | +0,95% | 0,06 | −34,43% | 51,6 |
+| stop puro 8× ATR | +12,80% | 0,62 | −35,58% | 23,7 |
+
+**O stop-loss não reduz o drawdown.** Essa é a descoberta, e ela é desconfortável:
+
+| vs. comprar e segurar | Drawdown | Melhorou em | Retorno |
+|---|---|---|---|
+| stop 2× ATR | **+0,40 pts** | 30/64 (cara ou coroa) | **−17,18 pts** |
+| stop 8× ATR | **−0,75 pts** (pior) | 24/64 | −5,33 pts |
+
+Ele custa 17 pontos de retorno para entregar 0,4 ponto de drawdown — e "melhorar em 30 de 64" é indistinguível de sorteio. Vale por regime também: em alta, lateral e baixa, o drawdown do stop fica dentro de ~1 ponto do buy-and-hold.
+
+**Por que não protege:** ele sai e *recompra*, e a recompra pega a perna seguinte da queda. O drawdown é medido do pico do patrimônio, então ser picotado várias vezes acumula tanto quanto segurar — só que pagando taxa em 51 operações.
+
+**Duas consequências que mudam o desenho:**
+
+1. **A camada de risco, sozinha, não é o valor do sistema.** Ela foi construída como proteção e, medida isoladamente, não protege. Isso não a torna inútil — a regra 1 continua sendo a trava contra o viés de aversão à perda do LLM (seção 6) —, mas desfaz a suposição de que ela carregaria o resultado sozinha.
+
+2. **O resultado da BNB fica *mais* difícil de explicar sem o cérebro, não menos.** Lá a híbrida teve drawdown de −8,56%; o stop puro, entre −26% e −34%; o buy-and-hold, −32,89%. A híbrida conseguiu algo que nenhuma das duas conseguiu — e agora sabemos que não foi o stop.
+
+Continua valendo a ressalva: a híbrida rodou em dois ativos, com resultados opostos. ETH, SOL e XRP decidem se isso é mecanismo ou coincidência.
+
+#### Qual das duas pernas machuca: é o take-profit
+
+Mesmas 64 janelas, desligando o alvo (multiplicador absurdamente alto):
+
+| Variante | Retorno médio | Sharpe | Drawdown | Trades |
+|---|---|---|---|---|
+| `buy_and_hold` | **+18,14%** | 0,96 | −34,83% | 1,0 |
+| stop 2× **com** alvo 3× | +0,95% | 0,06 | −34,43% | **51,6** |
+| stop 2× **sem** alvo | +13,92% | 0,70 | −34,37% | **5,7** |
+| stop 8× **sem** alvo | +16,51% | 0,88 | −34,63% | 2,2 |
+
+Desligar o take-profit recupera **13 pontos de retorno** e corta as operações de 51,6 para 5,7 — 9× menos — com drawdown idêntico dentro do ruído. O alvo não comprava proteção nenhuma: vendia ganhador cedo e forçava recompra, e a recompra é o que gerava o rodízio.
+
+Mesmo assim, nenhuma variante bate o buy-and-hold. A leitura correta não é "desliguem o alvo e fica bom" — é **o Risk Engine, isolado, custa retorno e não entrega proteção**.
+
+**Isto ilumina o resultado da BNB por outro ângulo.** A híbrida usa take-profit (3×/6×/12× ATR por horizonte) e mesmo assim fez só 13 operações, não 51. O que segurou o rodízio foi o `NO_TRADE` do cérebro: depois de sair, ela não recomprava. **A passividade do LLM estava mascarando um defeito da camada de risco** — o que é uma explicação bem mais interessante que "a IA acertou a direção".
+
+**Ressalva de amostra:** 30 das 64 janelas são de alta. Num período dominado por queda o take-profit provavelmente ajudaria. O efeito medido aqui é real e grande, mas é condicionado a este conjunto.
+
+⚠️ **Não mexer nos multiplicadores agora.** ETH, SOL e XRP precisam rodar com a mesma configuração de BTC e BNB, senão a replicação — a única coisa que separa mecanismo de coincidência — perde o sentido. Calibrar o alvo é assunto para depois que os cinco ativos estiverem medidos.
+
 #### Uma propriedade do experimento que este diagnóstico revelou
 
 As respostas do LLM **não são independentes da configuração de risco**. O cache é indexado pelo hash do prompt, e o prompt inclui `posicao_aberta` — o cérebro precisa saber se há posição para escolher entre `HOLD` e `NO_TRADE` (seção 5). Trocar o risco muda o dimensionamento → muda quando as posições abrem e fecham → muda o prompt. Medido: o cache divergiu depois de **9 consultas** das 364, e a rodada custou 248 chamadas novas.
