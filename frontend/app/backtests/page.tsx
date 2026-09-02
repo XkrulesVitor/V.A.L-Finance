@@ -3,7 +3,7 @@ import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 import { calcularUso, type RunDeCota } from "@/lib/cota";
 import { CotaDiaria } from "./CotaDiaria";
 import type { Metadata } from "next";
-import { ConfiguracaoPendente } from "@/app/ConfiguracaoPendente";
+import { Diagnostico } from "@/app/Diagnostico";
 
 export const metadata: Metadata = {
   title: "Backtests — V.A.L Finance",
@@ -84,7 +84,7 @@ async function carregar() {
       .order("created_at", { ascending: false })
       .limit(1),
   ]);
-  if (runs.error) console.error(runs.error);
+  if (runs.error) throw new Error(`Supabase: ${runs.error.message}`);
   return {
     runs: (runs.data ?? []) as Run[],
     ultimaDecisao: (decisions.data?.[0] ?? null) as Decision | null,
@@ -128,9 +128,15 @@ export default async function Backtests() {
   // Sem as variáveis, consultar o Supabase estoura com uma mensagem
   // que não ajuda. Melhor dizer o que falta.
   const faltando = variaveisFaltando();
-  if (faltando.length) return <ConfiguracaoPendente faltando={faltando} />;
+  if (faltando.length) return <Diagnostico faltando={faltando} />;
 
-  const { runs, ultimaDecisao } = await carregar();
+  let dados;
+  try {
+    dados = await carregar();
+  } catch (e) {
+    return <Diagnostico erro={e instanceof Error ? e.message : String(e)} />;
+  }
+  const { runs, ultimaDecisao } = dados;
 
   // Agrupa por período: comparar rodadas de janelas diferentes é comparar
   // perguntas diferentes, então elas nunca aparecem na mesma tabela.

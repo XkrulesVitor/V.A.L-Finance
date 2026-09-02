@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ConfiguracaoPendente } from "@/app/ConfiguracaoPendente";
+import { Diagnostico } from "@/app/Diagnostico";
 import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 
 export const metadata: Metadata = {
@@ -55,7 +55,7 @@ async function carregar() {
       .limit(30),
     supabase.from("decisions").select("id", { count: "exact", head: true }),
   ]);
-  if (ultimas.error) console.error(ultimas.error);
+  if (ultimas.error) throw new Error(`Supabase: ${ultimas.error.message}`);
   return {
     decisions: (ultimas.data ?? []) as Decision[],
     total: total.count ?? 0,
@@ -103,9 +103,17 @@ export default async function Home() {
   // Sem as variáveis, consultar o Supabase estoura com uma mensagem
   // que não ajuda. Melhor dizer o que falta.
   const faltando = variaveisFaltando();
-  if (faltando.length) return <ConfiguracaoPendente faltando={faltando} />;
+  if (faltando.length) return <Diagnostico faltando={faltando} />;
 
-  const { decisions, total } = await carregar();
+  let dados;
+  try {
+    dados = await carregar();
+  } catch (e) {
+    // O servidor sabe o que falhou. Mostrar é mais útil que esconder atrás
+    // de um digest que ninguém consegue traduzir.
+    return <Diagnostico erro={e instanceof Error ? e.message : String(e)} />;
+  }
+  const { decisions, total } = dados;
 
   // Um ciclo por símbolo: a lista vem ordenada por data, então o primeiro
   // de cada símbolo é o mais recente.

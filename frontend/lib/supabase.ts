@@ -58,3 +58,27 @@ export function getSupabaseClient() {
 
   return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 }
+
+/**
+ * Retrato seguro da configuração, para diagnóstico na tela.
+ *
+ * Mostra host da URL e prefixo+tamanho da chave — nunca o valor. O host de
+ * um projeto Supabase é público, e o prefixo só identifica o TIPO de chave.
+ * É o mínimo necessário para flagrar os dois erros que este projeto já
+ * cometeu: colar a chave no campo da URL, e usar a chave secreta no lugar
+ * da pública.
+ */
+export function impressaoDaConfig() {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const chave = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+  const urlOk = /^https?:\/\/[^/]+\.supabase\.(co|in)/.test(url);
+  const chaveSecreta = chave.startsWith("sb_secret_") || chave.startsWith("service_role");
+
+  return {
+    url: url ? (urlOk ? url : `${url.slice(0, 24)}… (${url.length} chars)`) : "",
+    urlOk,
+    chave: chave ? `${chave.slice(0, 16)}… (${chave.length} chars)` : "",
+    chaveOk: chave.length > 20 && !chaveSecreta,
+    chaveSecreta,
+  };
+}
