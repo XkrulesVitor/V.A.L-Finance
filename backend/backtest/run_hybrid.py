@@ -48,6 +48,7 @@ load_dotenv()
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -69,6 +70,21 @@ PASTA_CACHE_LLM = Path(__file__).resolve().parent / ".cache" / "llm"
 PASTA_RESULTADOS = Path(__file__).resolve().parent / "resultados"
 
 NOME_DA_ESTRATEGIA = "hibrida_llm_risk"
+
+
+def _gravar_atomico(destino: Path, conteudo: str) -> None:
+    """
+    Grava num temporario e renomeia -- `rename` e atomico no mesmo volume.
+
+    `write_text` direto nao e: se o processo morrer no meio (o que aconteceu
+    quando a tarefa agendada foi encerrada junto com a sessao), sobra um
+    arquivo truncado ou cheio de bytes nulos. Ele fica no cache parecendo
+    valido, e quebra a rodada seguinte com um erro de JSON que nao diz de
+    onde veio.
+    """
+    temporario = destino.with_suffix(".tmp")
+    temporario.write_text(conteudo, encoding="utf-8")
+    os.replace(temporario, destino)
 
 
 class SemCache(RuntimeError):
@@ -103,6 +119,7 @@ class AnalistaComCache:
         self.pasta.mkdir(parents=True, exist_ok=True)
         self.acertos_de_cache = 0
         self.chamadas_reais = 0
+        self.corrompidos = 0
         self.esperas_por_limite = 0
 
     def analisar(self, features, simbolo, posicao_aberta=False, preco_atual=None):
@@ -113,8 +130,19 @@ class AnalistaComCache:
         arquivo = self.pasta / f"{chave}.json"
 
         if arquivo.exists():
-            self.acertos_de_cache += 1
-            return TeseDeOperacao.model_validate_json(arquivo.read_text(encoding="utf-8"))
+            try:
+                tese = TeseDeOperacao.model_validate_json(arquivo.read_text(encoding="utf-8"))
+                self.acertos_de_cache += 1
+                return tese
+            except Exception:  # noqa: BLE001
+                # Cache corrompido -- normalmente um arquivo escrito pela
+                # metade quando o processo morreu no meio da gravacao. Ele
+                # envenena a rodada inteira e falha muito depois, com uma
+                # mensagem que nao aponta pra causa. Descartar e refazer a
+                # chamada custa uma unidade de cota; manter custa a rodada.
+                print(f"      cache corrompido em {arquivo.name[:12]}..., refazendo", flush=True)
+                arquivo.unlink(missing_ok=True)
+                self.corrompidos += 1
 
         if self.somente_cache:
             raise SemCache(
@@ -122,7 +150,7 @@ class AnalistaComCache:
             )
 
         tese = self._chamar_com_reenvio(features, simbolo, posicao_aberta, preco_atual)
-        arquivo.write_text(tese.model_dump_json(), encoding="utf-8")
+        _gravar_atomico(arquivo, tese.model_dump_json())
         self.chamadas_reais += 1
         return tese
 

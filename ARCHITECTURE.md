@@ -591,6 +591,35 @@ E o detector realista destrói valor:
 
 **O que o dado sugere como direção alternativa.** O único lugar onde a híbrida mostrou algo não-trivial foi controle de perda, não direção: na BNB ela empatou com o buy-and-hold em retorno (+25,54% vs +25,01%) com **um quarto do drawdown** (−8,56% vs −32,89%). Se há valor no sistema, a evidência aponta para "mesmo retorno, menos sofrimento" — uma história de Sharpe e drawdown — e não para "escolhe melhor a direção". Vale medir nessa métrica, não em retorno bruto.
 
+#### Replicação em ETHUSDT — e o padrão que aparece nos três ativos
+
+Terceiro ativo, mesma janela, mesma configuração. **A híbrida bateu as duas baselines.**
+
+| ETHUSDT, 91 dias | Retorno | Sharpe | Max drawdown | Acerto | Trades |
+|---|---|---|---|---|---|
+| `buy_and_hold` | −15,28% | −0,70 | −34,88% | 0% | 1 |
+| `ema_crossover` | −16,75% | −1,66 | −26,18% | 16,7% | 24 |
+| **`hibrida_llm_risk`** | **−7,10%** | **−0,47** | **−22,96%** | 52,2% | 23 |
+
+Bateu o buy-and-hold por 8,18 pontos e o cruzamento de médias por 9,65. Métricas auditadas de forma independente a partir das operações cruas.
+
+**O quadro com três ativos:**
+
+| Ativo | Regime | b&h | Híbrida | Diferença | DD b&h | DD híbrida | Diferença |
+|---|---|---|---|---|---|---|---|
+| BTCUSDT | baixa | −11,60% | −14,90% | −3,30 | −20,93% | −19,21% | **+1,72** |
+| BNBUSDT | alta | +25,01% | +25,54% | +0,53 | −32,89% | −8,56% | **+24,33** |
+| ETHUSDT | baixa | −15,28% | −7,10% | **+8,18** | −34,88% | −22,96% | **+11,92** |
+| **Média** | | −0,62% | **+1,18%** | **+1,80** | −29,57% | **−16,91%** | **+12,66** |
+
+**O retorno é irregular (melhor em 2 de 3). O drawdown não é: melhor em 3 de 3, por 12,66 pontos em média.**
+
+Essa é a diferença que importa, e ela ganha força quando comparada com a ablação: o stop-loss sem cérebro melhorou o drawdown em **0,40 ponto**, acertando em 30 de 64 janelas — cara ou coroa. A híbrida melhora em **12,66 pontos**, em 3 de 3. Não é a mesma coisa acontecendo.
+
+**A hipótese que sobrevive:** o valor deste sistema não é escolher direção — é *não estar posicionado nas horas erradas*. As três rodadas são consistentes com isso e o mecanismo já foi identificado na ablação (o `NO_TRADE` impede a recompra que pica o capital). O retorno segue o drawdown quando o ativo cai, e não atrapalha quando sobe.
+
+**Ressalvas, do mesmo tamanho de antes:** três ativos, uma janela, um período. Dois dos três caíram, então o conjunto ainda favorece quem fica de fora. SOL e XRP faltam. E o `ema_crossover` já mostrou que uma vantagem em poucos ativos pode ser ruído — foi exatamente isso que a varredura de 10 moedas revelou sobre ele.
+
 #### Ablação: o stop-loss sozinho NÃO explica o resultado da BNB
 
 A hipótese mais econômica para o +25,54% da híbrida na BNB era que o crédito fosse todo do Risk Engine: um stop por ATR corta a queda, e o cérebro seria decoração cara. Se fosse isso, a conclusão do projeto estaria praticamente escrita.
