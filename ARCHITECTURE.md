@@ -771,7 +771,18 @@ O `api.binance.us` também responde, mas é **outra corretora**: no mesmo candle
 
 O `data-api` é idêntico ao mainnet campo a campo. O testnet **não é** — fechamento diferente e ~5% do volume. Como `volume_relativo` é uma das features gravadas em `decisions`, a coleta ao vivo vinha registrando um indicador calculado sobre volume simulado. Corrigido junto.
 
-**Consequência para o passo 8:** paper trading precisa de endpoint autenticado, e tanto `api.binance.com` quanto `testnet.binance.vision` são bloqueados em CI dos EUA. **O passo 8 não roda no GitHub Actions** — vai precisar de host fora dos EUA (Render em Frankfurt/Singapura, ou equivalente). A coleta de dados é grátis; a execução de ordens não vai ser.
+**Consequência para o passo 8 — corrigida.** A primeira leitura disto foi que "paper trading precisa de endpoint autenticado, logo o passo 8 não roda no GitHub Actions e vai precisar de host pago". Isso estava errado, porque tratava como uma coisa só o que são duas:
+
+| | Pergunta que responde | Precisa de testnet? |
+|---|---|---|
+| Validação da estratégia ao vivo | funciona em dado que nunca viu, para a frente no tempo? | **não** |
+| Validação do encanamento de ordens | a corretora aceita a ordem que eu monto? | sim |
+
+A primeira precisa de preço real (endpoint público, grátis), contabilidade própria (`portfolio`, já existe) e simulação de execução (o motor de backtest já faz). **Roda inteira no GitHub Actions, de graça.**
+
+E há um argumento mais forte do que o custo: **o testnet daria dado pior.** O livro dele tem ~5% do volume real, então os preenchimentos não representam a execução de verdade. Rotear paper trading por lá trocaria preço real por preço simulado — justamente o que o resto do projeto evita.
+
+A segunda precisa de credencial, e não precisa ser contínua: é um punhado de execuções manuais para conferir `LOT_SIZE`/`stepSize`, `minNotional` e rejeições. Isso roda no PC do dono, onde não há bloqueio geográfico. Host pago só entra se um dia a operação com dinheiro real exigir presença permanente fora dos EUA.
 
 ## 12. Considerações regulatórias e de risco
 
@@ -865,6 +876,46 @@ O que sobrevive da ideia original:
 
 - **A etapa B**, o orçamento de ações. O sangramento de taxa é real e medido (`macd_histograma` com 84 trades e o pior retorno do conjunto; `ema_crossover` queimando 12,8% do capital em taxa no ano) e não depende de prever regime nenhum. Limitar operações por janela é controle de risco puro.
 - **A reorientação da métrica.** O único sinal não-trivial da híbrida foi drawdown, não retorno: na BNB, mesmo retorno do buy-and-hold com um quarto da queda máxima. Se há valor aqui, ele está em Sharpe e drawdown. Medir por retorno bruto pode estar olhando para o lugar errado.
+
+### Passo 8 dividido em 8a e 8b
+
+O passo 8 estava escrito como um bloco só — "paper trading" — e isso escondia que ele mistura duas perguntas independentes, com custos e riscos diferentes. Separado:
+
+**8a — Forward test (grátis, contínuo, no GitHub Actions).** O sistema decide de verdade e escritura as operações, mas o preenchimento é simulado por nós, ao preço real de mercado. Responde: *a vantagem medida na seção 11 aparece em dado que o modelo nunca viu, andando para frente no tempo?* É a única pergunta que ainda decide se o projeto continua.
+
+**8b — Encanamento de ordens (local, manual, pontual).** Enviar ordem de verdade na testnet a partir do PC, umas poucas vezes, para descobrir o que a corretora rejeita. Responde: *a ordem que eu monto é aceita?* Não precisa ser contínuo nem hospedado, e não deve rodar em CI (bloqueio geográfico).
+
+A ordem importa: **8a não depende de 8b.** Amarrar os dois adiaria a medição que importa por causa de um problema de formatação de ordem.
+
+#### O que 8a exige
+
+| Peça | Estado |
+|---|---|
+| Lógica de decisão | **pronta** (`brain/hybrid_strategy.py`) |
+| Persistência da posição | **pronta e verificada** (`risk/portfolio_repo.py`) |
+| Cadência pura, servindo relógio e backtest | **pronta** (`brain/cadencia.py`) |
+| Dados reais em CI | **pronto** (endpoint público) |
+| Estado da estratégia atravessando processos | **falta** |
+| Escrituração da operação simulada | **falta** |
+| Proteção contra execução dupla | **falta** |
+
+#### Os três riscos reais, em ordem
+
+**1. Estado atravessando processos — o mais difícil do projeto até aqui.**
+
+No backtest um processo só segura tudo: `niveis`, `niveis_pendentes`, `ultima_tese` vivem em memória do começo ao fim. No cron o processo **morre a cada ciclo**, e cada ponto onde ele pode morrer é um estado possivelmente inconsistente. O caso que custa dinheiro: registrar a compra e morrer antes de gravar os níveis — a posição existe sem stop, e o ciclo seguinte não sabe que precisa protegê-la. `portfolio_repo` já se recusa a degradar para "sem posição" quando a leitura falha, exatamente por isso; falta a mesma disciplina na escrita.
+
+**2. Execução dupla.**
+
+Um `workflow_dispatch` manual junto com o disparo agendado, ou um retry do runner, e o mesmo ciclo roda duas vezes. Sem chave de idempotência isso vira duas compras. É o tipo de erro que não aparece em teste e aparece em produção.
+
+**3. A execução ao vivo não é a do backtest.**
+
+O backtest executa na **abertura do candle seguinte** ao sinal. Ao vivo, o cron acorda aos :05 e executaria ao preço daquele instante — ou seja, "abertura do candle seguinte + 5 min". A diferença é pequena mas é sistemática, e vai fazer o resultado ao vivo divergir do backtest por um motivo que não tem nada a ver com a estratégia. Decidir explicitamente: ou replicar o atraso, ou registrar a diferença e medir o quanto ela custa.
+
+#### O que 8a NÃO vai responder
+
+O forward test roda sobre o mercado que existir nas próximas semanas. A vantagem da seção 11 foi medida numa janela onde **três dos quatro ativos caíram** — e a hipótese é justamente que o sistema protege na queda. Se as próximas semanas forem de alta, o resultado pode ser fraco sem que isso refute nada, e forte sem que isso confirme nada. O critério de leitura precisa ser fixado **antes** de ver o número, senão vira interpretação conveniente.
 
 ### Quando o passo 8 chegar
 
