@@ -32,7 +32,10 @@ CANDLES_A_PEDIR = CANDLES_NECESSARIOS + 1
 
 
 def rodar_ciclo() -> None:
-    binance = BinanceAdapter(testnet=True)
+    # Dados publicos: sem credencial e com os candles REAIS do mainnet.
+    # Antes isto usava testnet=True, cujo livro tem ~5% do volume real --
+    # o que distorcia `volume_relativo`, uma das features gravadas aqui.
+    binance = BinanceAdapter(somente_dados_publicos=True)
     supabase = get_supabase_client()
 
     for simbolo in SIMBOLOS:

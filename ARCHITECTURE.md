@@ -743,6 +743,36 @@ Não é bug — é aritmética, e vale entender antes do passo 7. O ATR-14 em ca
 
 Os padrões ficaram em 2×/3×/1% de propósito: são os valores especificados para o passo 6, e mudá-los em silêncio esconderia a tensão em vez de resolvê-la. Mas fica o registro para o passo 7: **se a estratégia híbrida rodar com os padrões e quase não operar, isso é a configuração falando, não o cérebro.** Distinguir os dois é a diferença entre calibrar e concluir errado.
 
+### A Binance geo-bloqueia CI — e o testnet não serve como fonte de dados
+
+Medido em 2026-09-04, de dentro de um runner do GitHub Actions (Phoenix, EUA):
+
+| Endpoint | Resposta |
+|---|---|
+| `api.binance.com` | **451** — restricted location |
+| `testnet.binance.vision` | **451** — restricted location |
+| `api-gcp.binance.com` | **451** — restricted location |
+| `data-api.binance.vision` | **200** |
+| `api.binance.us` | 200 |
+
+Dois achados, e o segundo é o mais importante:
+
+**1. Só `data-api.binance.vision` funciona em CI.** É o endpoint público de dados de mercado — sem autenticação, sem ordens, sem geo-bloqueio. O adapter usa ele em modo `somente_dados_publicos`, e o workflow do GitHub Actions não carrega mais chave nenhuma da Binance.
+
+O `api.binance.us` também responde, mas é **outra corretora**: no mesmo candle de BTCUSDT, `data-api` marcou 433,78 BTC de volume e o `.us` marcou 1,77. Adotá-lo trocaria silenciosamente o mercado sobre o qual todos os backtests foram feitos.
+
+**2. O `main.py` vinha coletando do testnet, que tem livro próprio.** Mesmo candle, mesmo instante:
+
+| Fonte | Abertura | Fechamento | Volume |
+|---|---|---|---|
+| mainnet | 80968,01 | 80831,99 | **433,78** |
+| `data-api` | 80968,01 | 80831,99 | **433,78** |
+| testnet | 80968,01 | 80829,**99** | **23,79** |
+
+O `data-api` é idêntico ao mainnet campo a campo. O testnet **não é** — fechamento diferente e ~5% do volume. Como `volume_relativo` é uma das features gravadas em `decisions`, a coleta ao vivo vinha registrando um indicador calculado sobre volume simulado. Corrigido junto.
+
+**Consequência para o passo 8:** paper trading precisa de endpoint autenticado, e tanto `api.binance.com` quanto `testnet.binance.vision` são bloqueados em CI dos EUA. **O passo 8 não roda no GitHub Actions** — vai precisar de host fora dos EUA (Render em Frankfurt/Singapura, ou equivalente). A coleta de dados é grátis; a execução de ordens não vai ser.
+
 ## 12. Considerações regulatórias e de risco
 
 **CVM (Brasil):** existe uma distinção entre o robô que o próprio investidor configura e opera só pra si (informalmente chamado de robô "White Box"), que não exige registro na CVM porque quem decide é o dono do dinheiro através do sistema que ele mesmo programou, e o robô que presta consultoria ou gestão pra terceiros, que exige. Este projeto, sendo de uso pessoal, cai no primeiro caso. Se um dia a ideia for oferecer isso pra outras pessoas, essa premissa muda e precisa de orientação jurídica de verdade — nada aqui é aconselhamento jurídico.

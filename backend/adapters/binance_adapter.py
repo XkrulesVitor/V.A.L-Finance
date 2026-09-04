@@ -11,6 +11,20 @@ secao 6).
 import os
 from binance import Client
 
+# Endpoint publico de dados de mercado da Binance. Serve klines e tickers
+# sem autenticacao nenhuma, e -- diferente de api.binance.com e de
+# testnet.binance.vision -- NAO e geo-bloqueado. Medido em 2026-09-04 de
+# um runner do GitHub Actions em Phoenix/EUA:
+#
+#   api.binance.com          HTTP 451 (restricted location)
+#   testnet.binance.vision   HTTP 451 (restricted location)
+#   data-api.binance.vision  HTTP 200
+#
+# E os dados sao os mesmos do mainnet, byte a byte: mesma abertura, mesmo
+# fechamento, mesmo volume na mesma hora. O testnet NAO e -- ele tem
+# livro proprio, com ~5% do volume real, o que envenena `volume_relativo`.
+URL_DADOS_PUBLICOS = "https://data-api.binance.vision/api"
+
 
 def _formatar_klines(klines) -> list[dict]:
     """
@@ -40,13 +54,26 @@ def _formatar_klines(klines) -> list[dict]:
 class BinanceAdapter:
     def __init__(self, testnet: bool = True, somente_dados_publicos: bool = False):
         """
-        somente_dados_publicos: monta o cliente sem exigir chave de API.
+        somente_dados_publicos: monta o cliente sem exigir chave de API e
+        aponta para `data-api.binance.vision`.
 
         Preco e candle sao endpoints publicos na Binance -- rodar um
         backtest nao deveria exigir credencial nenhuma, e exigir seria
         fricção sem contrapartida. Com a flag ligada, `consultar_saldo` e
         `enviar_ordem` passam a falhar cedo e com mensagem propria, em vez
         de deixar a corretora recusar por autenticacao la na frente.
+
+        O endpoint tambem muda, e por dois motivos independentes:
+
+        1. `api.binance.com` responde 451 de varios paises (entre eles os
+           EUA, onde rodam os runners do GitHub Actions). `data-api` nao.
+        2. Os dados sao identicos aos do mainnet -- conferido campo a
+           campo. Nao ha o que perder na troca.
+
+        `testnet` fica sem efeito aqui: o testnet e uma corretora
+        separada, com livro proprio e volume irreal, e nao existe versao
+        de testnet do endpoint publico. Quem quiser testnet precisa de
+        credencial, ou seja, `somente_dados_publicos=False`.
         """
         self.somente_dados_publicos = somente_dados_publicos
 
@@ -56,7 +83,15 @@ class BinanceAdapter:
             api_key = os.environ["BINANCE_API_KEY"]
             api_secret = os.environ["BINANCE_API_SECRET"]
 
-        self.client = Client(api_key, api_secret, testnet=testnet)
+        # ping=False: a python-binance bate no endpoint no __init__ pra
+        # conferir conectividade. Como o endpoint so e trocado na linha
+        # seguinte, esse ping iria no lugar errado -- e era exatamente ele
+        # que estourava com 451 no GitHub Actions, antes mesmo do adapter
+        # ter chance de fazer qualquer coisa.
+        self.client = Client(api_key, api_secret, testnet=testnet, ping=False)
+
+        if somente_dados_publicos:
+            self.client.API_URL = URL_DADOS_PUBLICOS
 
     def buscar_preco(self, simbolo: str) -> float:
         """Preco atual de um par, ex: 'BTCUSDT'."""
