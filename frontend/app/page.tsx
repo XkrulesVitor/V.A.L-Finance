@@ -126,9 +126,11 @@ export default async function Home() {
     ? Math.round((Date.now() - new Date(ultimo.created_at).getTime()) / 60000)
     : null;
 
-  // O cron roda a cada 15 min. Mais de 40 sem gravar significa parado —
-  // dizer "ativo" nesse caso seria mentira útil para ninguém.
-  const vivo = minutos !== null && minutos < 40;
+  // O cron roda de hora em hora, aos 5 min (render.yaml). Passar de 75 min
+  // significa que uma execução foi pulada — dizer "ativo" nesse caso seria
+  // mentira útil para ninguém. O limiar acompanha o cron: se a cadência lá
+  // mudar, este número muda junto, senão a página passa a mentir sozinha.
+  const vivo = minutos !== null && minutos < 75;
   const jaOperou = decisions.some((d) => d.risk_result !== null);
 
   return (
@@ -314,7 +316,7 @@ export default async function Home() {
               {jaOperou ? "sim" : "nenhuma"}
             </span>
           </span>
-          <span>cron a cada 15 min · cérebro a cada 6h (quando ligado)</span>
+          <span>cron de hora em hora · cérebro a cada 6h (quando ligado)</span>
         </div>
       </div>
     </main>

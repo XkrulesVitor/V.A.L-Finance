@@ -591,6 +591,30 @@ E o detector realista destrói valor:
 
 **O que o dado sugere como direção alternativa.** O único lugar onde a híbrida mostrou algo não-trivial foi controle de perda, não direção: na BNB ela empatou com o buy-and-hold em retorno (+25,54% vs +25,01%) com **um quarto do drawdown** (−8,56% vs −32,89%). Se há valor no sistema, a evidência aponta para "mesmo retorno, menos sofrimento" — uma história de Sharpe e drawdown — e não para "escolhe melhor a direção". Vale medir nessa métrica, não em retorno bruto.
 
+#### Replicação em SOLUSDT — e o quadro com quatro ativos
+
+| SOLUSDT, 91 dias | Retorno | Sharpe | Max drawdown | Acerto | Trades |
+|---|---|---|---|---|---|
+| `buy_and_hold` | −9,26% | −0,12 | −39,86% | 0% | 1 |
+| `ema_crossover` | −6,80% | −0,36 | −19,91% | 28,6% | 21 |
+| **`hibrida_llm_risk`** | **+13,63%** | **1,26** | **−15,09%** | 55,6% | 18 |
+
+Auditado de forma independente a partir das 36 operações cruas.
+
+| Ativo | b&h | Híbrida | Dif | DD b&h | DD híbrida | Dif DD |
+|---|---|---|---|---|---|---|
+| BTCUSDT | −11,60% | −14,90% | −3,30 | −20,93% | −19,21% | +1,72 |
+| BNBUSDT | +25,01% | +25,54% | +0,53 | −32,89% | −8,56% | +24,33 |
+| ETHUSDT | −15,28% | −7,10% | +8,18 | −34,88% | −22,96% | +11,92 |
+| SOLUSDT | −9,26% | +13,63% | +22,89 | −39,86% | −15,09% | +24,77 |
+| **Média** | −2,78% | **+4,29%** | **+7,07** | −32,14% | **−16,46%** | **+15,68** |
+
+**Drawdown melhor em 4 de 4. Retorno melhor em 3 de 4. Sharpe melhor em 3 de 4.**
+
+O número de operações é o mesmo em todos: 14, 13, 23, 18 — contra **51,6 do stop puro sem cérebro**. É a assinatura do mecanismo já identificado na ablação: o `NO_TRADE` impede a recompra que pica o capital.
+
+**Ressalva que não encolheu:** quatro ativos, **uma única janela de 91 dias**. Três dos quatro caíram nesse período, o que favorece estruturalmente quem fica de fora. Não é evidência de que funciona em alta — a BNB é o único caso de alta e é justamente o de menor vantagem em retorno (+0,53). Falta XRP, e falta repetir em outras janelas antes de tratar isso como resultado.
+
 #### Replicação em ETHUSDT — e o padrão que aparece nos três ativos
 
 Terceiro ativo, mesma janela, mesma configuração. **A híbrida bateu as duas baselines.**

@@ -2,8 +2,16 @@ services:
   - type: cron
     name: ia-trading-cron
     runtime: python
-    plan: free
-    schedule: "*/15 * * * *"
+    # O plano `free` NAO existe para cron job. A propria API do Render
+    # recusa: "invalid plan: free. valid PaidPlans are [starter, standard,
+    # pro, ...]". Web service tem free tier; cron job nao tem. Starter e o
+    # piso, ~US$ 7/mes.
+    plan: starter
+    # De hora em hora, e nao a cada 15 min. Os candles sao de 1h e
+    # `somente_fechados` descarta o que ainda esta aberto -- entao rodar 4x
+    # por hora grava 4 linhas com exatamente as mesmas features, e 3 delas
+    # sao lixo. O cron so tem o que fazer quando um candle fecha.
+    schedule: "5 * * * *"
     buildCommand: "pip install -r backend/requirements.txt"
     startCommand: "python backend/main.py"
     envVars:
