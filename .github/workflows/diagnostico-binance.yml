@@ -1,0 +1,51 @@
+name: Diagnostico - alcance da Binance
+
+# Temporario. A execucao de 2026-09-04 falhou com:
+#   "Service unavailable from a restricted location according to
+#    'b. Eligibility' in https://www.binance.com/en/terms"
+#
+# Ou seja: a Binance geo-bloqueia o IP do runner do GitHub (EUA). Isso
+# nao e erro de configuracao -- os secrets chegaram certos, o codigo
+# chegou ate a chamada de rede.
+#
+# Antes de decidir a saida, este workflow mede QUAL endpoint da Binance
+# responde de dentro do runner. Testar isso da maquina do dono nao serve
+# pra nada: o Brasil nao e bloqueado, entao tudo passaria por la.
+#
+# Apagar depois que a decisao estiver tomada.
+on:
+  workflow_dispatch:
+
+jobs:
+  medir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: De onde o runner esta saindo
+        run: curl -s https://ipinfo.io/json | head -20 || true
+
+      - name: Testar cada endpoint
+        run: |
+          testar() {
+            nome="$1"; url="$2"
+            codigo=$(curl -s -o /tmp/corpo -w "%{http_code}" --max-time 15 "$url" || echo "erro")
+            corpo=$(head -c 160 /tmp/corpo 2>/dev/null | tr -d '\n')
+            printf "%-34s HTTP %-6s %s\n" "$nome" "$codigo" "$corpo"
+          }
+
+          echo "---------- ping ----------"
+          testar "api.binance.com"      "https://api.binance.com/api/v3/ping"
+          testar "data-api.binance.vision" "https://data-api.binance.vision/api/v3/ping"
+          testar "testnet.binance.vision"  "https://testnet.binance.vision/api/v3/ping"
+          testar "api.binance.us"       "https://api.binance.us/api/v3/ping"
+          testar "api-gcp.binance.com"  "https://api-gcp.binance.com/api/v3/ping"
+
+          echo ""
+          echo "---------- klines de verdade (o que o projeto usa) ----------"
+          testar "data-api klines" "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=2"
+          testar "binance.us klines" "https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=2"
+
+          echo ""
+          echo "---------- alternativas fora da Binance ----------"
+          testar "coingecko ping"   "https://api.coingecko.com/api/v3/ping"
+          testar "kraken ohlc"      "https://api.kraken.com/0/public/OHLC?pair=XBTUSDT&interval=60"
