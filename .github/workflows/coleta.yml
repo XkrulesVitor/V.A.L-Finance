@@ -1,0 +1,40 @@
+name: Coleta e indicadores (cron)
+
+# Substitui o Render como executor do backend/main.py. O Render exige um
+# plano pago (starter, ~US$ 7/mes) para cron job -- o free tier so cobre
+# web service. GitHub Actions e de graca ate 2.000 minutos/mes no plano
+# free, e este job leva segundos, entao nunca chega perto do limite.
+#
+# Cadencia horaria, nos 5 minutos de cada hora: os candles sao de 1h e
+# `somente_fechados` descarta o que ainda esta aberto, entao rodar mais
+# vezes por hora so gravaria a mesma feature repetida. Ver render.yaml
+# para o raciocinio completo -- este arquivo espelha a mesma cadencia.
+#
+# `workflow_dispatch` permite disparar manualmente pela aba Actions, sem
+# esperar a proxima hora -- util pra testar depois de qualquer mudanca.
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r backend/requirements.txt
+
+      - name: Rodar o ciclo de coleta
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python backend/main.py
