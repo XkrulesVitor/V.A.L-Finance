@@ -1,0 +1,71 @@
+name: Forward test (passo 8a)
+
+# A estrategia decidindo ao vivo, com preenchimento simulado ao preco
+# real de mercado. Nao envia ordem pra corretora nenhuma.
+#
+# ATENCAO -- ESTE WORKFLOW ESTA EM DISPARO MANUAL DE PROPOSITO.
+#
+# O forward test tem uma data de inicio, e essa data e o comeco da
+# medicao. Deixar o agendamento ligado no mesmo commit que cria o
+# arquivo faria a medicao comecar por acidente, num momento qualquer,
+# antes de qualquer decisao sobre criterio de leitura. Quando for pra
+# comecar de verdade, basta descomentar o bloco `schedule` abaixo.
+#
+#   schedule:
+#     - cron: "10 * * * *"
+#
+# Aos :10 e nao aos :05 pra nao concorrer com o workflow de coleta --
+# duas execucoes simultaneas gravando na mesma tabela nao quebrariam
+# nada (o indice unico protege), mas o log fica mais facil de ler.
+#
+# A cadencia e horaria porque a ETAPA 1 (stop/take) precisa rodar toda
+# hora. O cerebro so e consultado a cada 6h, e quem decide isso e o
+# `brain/cadencia.py`, nao o cron -- ver `live/ciclo.py`.
+#
+# Sobre a Binance: o ciclo usa `somente_dados_publicos`, entao sai pelo
+# `data-api.binance.vision`. Os outros endpoints respondem 451 pro IP do
+# runner. Nao troque isso sem reler o workflow de coleta.
+on:
+  workflow_dispatch:
+    inputs:
+      pares:
+        description: "Pares, separados por espaco"
+        default: "BTCUSDT ETHUSDT"
+      ensaio:
+        description: "So mostrar o estado, sem decidir nem gravar"
+        type: boolean
+        default: false
+
+jobs:
+  ciclo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Impede que dois ciclos rodem ao mesmo tempo. O indice unico ja
+    # garante que o mesmo candle nao seja decidido duas vezes, mas
+    # serializar aqui evita gastar cota de LLM numa corrida perdida.
+    concurrency:
+      group: forward-test
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r backend/requirements.txt
+
+      # Sem chave da Binance: o ciclo so le dados publicos. A chave do
+      # LLM entra aqui porque o cerebro e consultado de verdade.
+      - name: Rodar o ciclo
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LLM_PROVEDOR: ${{ vars.LLM_PROVEDOR }}
+        run: |
+          python backend/live/rodar.py \
+            --pares ${{ github.event.inputs.pares || 'BTCUSDT ETHUSDT' }} \
+            ${{ github.event.inputs.ensaio == 'true' && '--ensaio' || '' }}
