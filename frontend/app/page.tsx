@@ -95,8 +95,14 @@ const PASSOS = [
   { n: 5, nome: "Cérebro (LLM)", estado: "ok" },
   { n: 6, nome: "Risk Engine", estado: "ok" },
   { n: 7, nome: "Backtest da híbrida", estado: "ok" },
-  { n: 8, nome: "Paper trading (testnet)", estado: "pendente" },
-  { n: 9, nome: "Dashboard completo", estado: "pendente" },
+  // 8 virou 8a/8b depois de o passo 7 fechar. 8a (forward test, execucao
+  // simulada ao preco real) tem o codigo pronto e testado, mas a medicao
+  // ainda nao comecou -- o workflow esta em disparo manual de proposito,
+  // porque a data de inicio E o comeco da medicao. Por isso "parcial",
+  // e nao "ok": codigo pronto nao e resultado.
+  { n: 8, nome: "Forward test (8a)", estado: "parcial" },
+  { n: 9, nome: "Ordens na testnet (8b)", estado: "pendente" },
+  { n: 10, nome: "Dashboard completo", estado: "pendente" },
 ] as const;
 
 export default async function Home() {
