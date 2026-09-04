@@ -28,6 +28,27 @@ gravadas, coletar do testnet distorcia o dado na origem.
 Os testes abaixo travam as duas coisas que essa correcao depende:
 o endpoint usado em modo publico, e o fato de que modo publico nao pede
 credencial.
+
+## Por que os testes de endpoint usam o Client de verdade
+
+A primeira versao deste arquivo usava o duble tambem pra isso, e conferia
+`client.API_URL`. Passou 12/12 -- com o codigo quebrado. O deploy seguinte
+falhou com o mesmo 451.
+
+O motivo: a python-binance monta a URL assim
+(`BaseClient._create_api_uri`)
+
+    url = self.API_URL
+    if self.testnet:
+        url = self.API_TESTNET_URL
+
+Setar `API_URL` com `testnet` ligado nao tem efeito nenhum. O teste
+verificava que o adapter ESCREVE o atributo, nao que a lib o USA -- que
+era exatamente a pergunta.
+
+Por isso os testes de endpoint constroem um `Client` real (sem rede:
+`ping=False`, e montar URI e string pura) e conferem a URI efetiva. Assim
+um upgrade da lib que mude a montagem quebra o teste, em vez de passar.
 """
 
 import os
@@ -109,14 +130,16 @@ def test_numeros_viram_float_e_nao_texto():
 
 # ------------------------------------------------------------ modo publico
 
-def test_modo_publico_usa_data_api():
-    # Regressao do HTTP 451: api.binance.com e testnet.binance.vision sao
-    # geo-bloqueados no runner do GitHub Actions; data-api nao e.
-    with _com_duble(), _sem_credenciais():
+def test_modo_publico_usa_data_api_de_verdade():
+    # Regressao do HTTP 451, com Client REAL: o que importa nao e o valor
+    # de API_URL, e a URI que a lib efetivamente monta.
+    with _sem_credenciais():
         a = BinanceAdapter(somente_dados_publicos=True)
-        assert a.client.API_URL == URL_DADOS_PUBLICOS, (
-            f"modo publico devia apontar pro data-api, apontou {a.client.API_URL}"
+        uri = a.client._create_api_uri("ticker/price", signed=False)
+        assert uri.startswith(URL_DADOS_PUBLICOS), (
+            f"modo publico devia sair pelo data-api, saiu por {uri}"
         )
+        assert "testnet" not in uri, f"testnet e bloqueado em CI: {uri}"
 
 
 def test_modo_publico_nao_exige_credencial():
@@ -135,11 +158,16 @@ def test_modo_publico_nao_pinga_no_init():
 
 
 def test_testnet_nao_vaza_pro_modo_publico():
-    # Nao existe testnet do endpoint publico, e o livro do testnet tem
-    # volume irreal. Pedir os dois junto tem que continuar dando dado real.
-    with _com_duble(), _sem_credenciais():
+    # Este e o teste que faltava. `testnet=True` + modo publico era
+    # exatamente o que o main.py fazia, e a lib descartava a API_URL em
+    # favor do testnet.binance.vision -- bloqueado, e com volume irreal.
+    with _sem_credenciais():
         a = BinanceAdapter(testnet=True, somente_dados_publicos=True)
-        assert a.client.API_URL == URL_DADOS_PUBLICOS
+        uri = a.client._create_api_uri("klines", signed=False)
+        assert uri.startswith(URL_DADOS_PUBLICOS), (
+            f"testnet nao pode sequestrar o modo publico; saiu por {uri}"
+        )
+        assert a.client.testnet is False
 
 
 # ---------------------------------------------------------- modo autenticado
@@ -166,11 +194,15 @@ def test_modo_autenticado_sem_chave_falha_cedo():
 def test_modo_autenticado_nao_usa_data_api():
     # data-api nao aceita autenticacao nem ordens. Se o modo autenticado
     # herdasse essa URL, o passo 8 falharia na hora de operar.
-    with _com_duble(), mock.patch.dict(
+    with mock.patch.dict(
         os.environ, {"BINANCE_API_KEY": "k", "BINANCE_API_SECRET": "s"}
     ):
-        a = BinanceAdapter(somente_dados_publicos=False)
-        assert a.client.API_URL != URL_DADOS_PUBLICOS
+        a = BinanceAdapter(testnet=True, somente_dados_publicos=False)
+        uri = a.client._create_api_uri("order", signed=True)
+        assert not uri.startswith(URL_DADOS_PUBLICOS), (
+            f"modo autenticado nao pode cair no endpoint publico: {uri}"
+        )
+        assert a.client.testnet is True, "testnet pedido tem que ser respeitado"
 
 
 # --------------------------------------------------------------- consultas

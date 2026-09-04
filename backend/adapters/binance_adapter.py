@@ -84,11 +84,29 @@ class BinanceAdapter:
             api_secret = os.environ["BINANCE_API_SECRET"]
 
         # ping=False: a python-binance bate no endpoint no __init__ pra
-        # conferir conectividade. Como o endpoint so e trocado na linha
-        # seguinte, esse ping iria no lugar errado -- e era exatamente ele
-        # que estourava com 451 no GitHub Actions, antes mesmo do adapter
-        # ter chance de fazer qualquer coisa.
-        self.client = Client(api_key, api_secret, testnet=testnet, ping=False)
+        # conferir conectividade. Como o endpoint so e trocado depois,
+        # esse ping iria no lugar errado -- e era exatamente ele que
+        # estourava com 451 no GitHub Actions, antes mesmo do adapter ter
+        # chance de fazer qualquer coisa.
+        #
+        # `testnet=False` a forca no modo publico, e isso NAO e cosmetico.
+        # A python-binance monta a URL assim (BaseClient._create_api_uri):
+        #
+        #     url = self.API_URL
+        #     if self.testnet:
+        #         url = self.API_TESTNET_URL
+        #
+        # ou seja, com `testnet` ligado ela IGNORA a API_URL que setamos
+        # e vai pro testnet.binance.vision -- que e justamente um dos
+        # bloqueados. Setar API_URL sem zerar testnet nao tem efeito
+        # nenhum: foi assim que a segunda tentativa de deploy falhou com o
+        # mesmo 451, agora em get_symbol_ticker em vez do ping.
+        self.client = Client(
+            api_key,
+            api_secret,
+            testnet=False if somente_dados_publicos else testnet,
+            ping=False,
+        )
 
         if somente_dados_publicos:
             self.client.API_URL = URL_DADOS_PUBLICOS
