@@ -106,3 +106,49 @@ create policy "leitura publica backtest_runs" on backtest_runs
 grant select on decisions to anon, authenticated;
 grant select on portfolio to anon, authenticated;
 grant select on backtest_runs to anon, authenticated;
+
+-- ====================================================================
+-- Passo 8a -- forward test (estrategia decidindo ao vivo, execucao
+-- simulada por nos ao preco real de mercado)
+-- ====================================================================
+
+-- CAIXA POR PAR.
+--
+-- Cada par e uma conta simulada independente, com seu proprio capital --
+-- exatamente como no backtest, onde cada ativo rodou sozinho partindo de
+-- 10.000. Sem esse espelhamento o resultado ao vivo nao seria comparavel
+-- aos numeros da secao 11, e a comparacao e o unico motivo do passo 8a
+-- existir.
+--
+-- O caixa fica na MESMA LINHA da quantidade e dos niveis de risco de
+-- proposito. Um `upsert` grava a linha inteira de uma vez, e o Postgres
+-- garante atomicidade por linha -- entao nao existe estado intermediario
+-- onde a compra foi registrada mas o caixa ainda nao foi debitado, ou
+-- pior, onde a posicao existe sem stop. Em duas tabelas (ou duas
+-- escritas) esse buraco existiria, e o processo do cron morre a cada
+-- ciclo, entao ele seria alcancado mais cedo ou mais tarde.
+alter table portfolio add column if not exists caixa numeric;
+
+-- IDEMPOTENCIA -- de qual candle esta decisao tratou.
+--
+-- O problema: um disparo manual junto com o agendado, ou um retry do
+-- runner, faz o mesmo ciclo rodar duas vezes. Sem chave, viram duas
+-- compras.
+--
+-- A chave natural e o candle fechado que gerou a decisao: para um dado
+-- par, cada candle so pode ser decidido uma vez. Nao inventamos um id --
+-- ele vem do proprio dado.
+alter table decisions add column if not exists candle_fechamento_em bigint;
+
+-- E a restricao no BANCO, nao no codigo.
+--
+-- Conferir antes de inserir ("ja existe decisao pra este candle?") tem
+-- janela de corrida: duas execucoes podem consultar, as duas verem que
+-- nao existe, e as duas inserirem. Um indice unico nao tem essa janela:
+-- a segunda insercao simplesmente falha, e falhar e a resposta certa.
+--
+-- Parcial (`where ... is not null`) pra nao afetar as linhas antigas de
+-- `skeleton_check`, que nao tem candle associado e sao muitas por hora.
+create unique index if not exists decisions_par_candle_unico
+  on decisions (symbol, candle_fechamento_em)
+  where candle_fechamento_em is not null;
