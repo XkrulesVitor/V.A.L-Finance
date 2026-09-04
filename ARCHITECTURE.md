@@ -591,6 +591,58 @@ E o detector realista destrói valor:
 
 **O que o dado sugere como direção alternativa.** O único lugar onde a híbrida mostrou algo não-trivial foi controle de perda, não direção: na BNB ela empatou com o buy-and-hold em retorno (+25,54% vs +25,01%) com **um quarto do drawdown** (−8,56% vs −32,89%). Se há valor no sistema, a evidência aponta para "mesmo retorno, menos sofrimento" — uma história de Sharpe e drawdown — e não para "escolhe melhor a direção". Vale medir nessa métrica, não em retorno bruto.
 
+#### Passo 7 fechado — os cinco ativos
+
+| XRPUSDT, 91 dias | Retorno | Sharpe | Max drawdown | Acerto | Trades |
+|---|---|---|---|---|---|
+| `buy_and_hold` | −26,41% | −1,55 | −35,62% | 0% | 1 |
+| `ema_crossover` | −27,22% | −3,40 | −29,92% | 25,0% | 24 |
+| **`hibrida_llm_risk`** | **−4,69%** | **−0,66** | **−10,14%** | 44,4% | 9 |
+
+**Quadro final, mesma janela e mesma configuração nos cinco:**
+
+| Ativo | Regime | b&h | Híbrida | Dif | DD b&h | DD híbrida | Dif DD | Trades |
+|---|---|---|---|---|---|---|---|---|
+| BTCUSDT | baixa | −11,60% | −14,90% | −3,30 | −20,93% | −19,21% | +1,72 | 14 |
+| BNBUSDT | **alta** | +25,01% | +25,54% | +0,53 | −32,89% | −8,56% | +24,33 | 13 |
+| ETHUSDT | baixa | −15,28% | −7,10% | +8,18 | −34,88% | −22,96% | +11,92 | 23 |
+| SOLUSDT | baixa | −9,26% | +13,63% | +22,89 | −39,86% | −15,09% | +24,77 | 18 |
+| XRPUSDT | baixa | −26,41% | −4,69% | +21,72 | −35,62% | −10,14% | +25,48 | 9 |
+| **Média** | | −7,51% | **+2,50%** | **+10,00** | −32,84% | **−15,19%** | **+17,64** | **15,4** |
+
+**Drawdown melhor em 5 de 5. Retorno em 4 de 5. Sharpe em 4 de 5.**
+
+Todas as métricas foram auditadas de forma independente a partir das operações cruas, ativo por ativo.
+
+**O drawdown é o resultado sólido; o retorno é consequência dele.** A média de 15,4 operações contra as **51,6 do stop puro sem cérebro** é a mesma assinatura da ablação: o valor não está em escolher a hora de entrar, está em não reentrar mal.
+
+#### A ressalva que decide como ler isto
+
+**Quatro dos cinco ativos caíram na janela.** A hipótese é que o sistema protege na queda — e a amostra é quase toda de queda. Isso é exatamente a condição que favorece este sistema, então o resultado é consistente com a hipótese sem ser uma prova dela.
+
+O único caso de alta, BNBUSDT, é **o de menor vantagem em retorno** (+0,53). Ou seja: não há evidência de que a estratégia adiciona retorno em mercado subindo. O que há é evidência de que ela **não atrapalha** ali, e protege bastante quando cai.
+
+Uma janela, um período, cinco ativos. O `ema_crossover` já mostrou o que acontece quando se confia em poucos ativos: parecia ter vantagem, e a varredura de 10 moedas revelou ruído.
+
+#### Critério de leitura do forward test — fixado ANTES de medir
+
+Registrado aqui de propósito, antes de a medição começar, porque depois de ver o número qualquer critério vira interpretação conveniente.
+
+**Métrica principal: drawdown contra o buy-and-hold, por ativo.** É o resultado que apareceu em 5 de 5, e é o que a ablação mostrou não ser explicável pelo stop-loss sozinho.
+
+**Métrica secundária: retorno.** Esperado acompanhar o drawdown em janela de queda, e ficar perto de zero em janela de alta.
+
+O que cada desfecho significa:
+
+| Janela do forward test | Confirma a hipótese | Refuta |
+|---|---|---|
+| Mercado caindo | drawdown melhor na maioria dos ativos | drawdown pior ou igual |
+| Mercado subindo | drawdown melhor, retorno ≈ b&h | retorno muito abaixo do b&h |
+
+**Um forward test em alta com retorno fraco não refuta nada** — é o comportamento previsto. E **um forward test em queda com retorno forte não confirma muito** — é a condição em que já sabíamos que funciona. O que informaria de verdade é drawdown pior em janela de queda, ou retorno muito abaixo do b&h em janela de alta.
+
+O número de operações é o terceiro sinal: se subir para perto de 50, o mecanismo identificado na ablação parou de valer.
+
 #### Replicação em SOLUSDT — e o quadro com quatro ativos
 
 | SOLUSDT, 91 dias | Retorno | Sharpe | Max drawdown | Acerto | Trades |

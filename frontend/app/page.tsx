@@ -94,7 +94,7 @@ const PASSOS = [
   { n: 4, nome: "Baseline", estado: "ok" },
   { n: 5, nome: "Cérebro (LLM)", estado: "ok" },
   { n: 6, nome: "Risk Engine", estado: "ok" },
-  { n: 7, nome: "Backtest da híbrida", estado: "parcial" },
+  { n: 7, nome: "Backtest da híbrida", estado: "ok" },
   { n: 8, nome: "Paper trading (testnet)", estado: "pendente" },
   { n: 9, nome: "Dashboard completo", estado: "pendente" },
 ] as const;
