@@ -3,16 +3,15 @@ name: Forward test (passo 8a)
 # A estrategia decidindo ao vivo, com preenchimento simulado ao preco
 # real de mercado. Nao envia ordem pra corretora nenhuma.
 #
-# ATENCAO -- ESTE WORKFLOW ESTA EM DISPARO MANUAL DE PROPOSITO.
+# MEDICAO INICIADA EM 2026-09-04, com as duas contas em 10.000 e a
+# tabela `portfolio` vazia. Antes de ligar o agendamento foram feitas
+# duas execucoes manuais: uma com --ensaio (conferindo secrets, Supabase
+# e o proprio YAML) e uma real (conferindo que a chamada ao Gemini
+# funciona do runner). As duas passaram.
 #
-# O forward test tem uma data de inicio, e essa data e o comeco da
-# medicao. Deixar o agendamento ligado no mesmo commit que cria o
-# arquivo faria a medicao comecar por acidente, num momento qualquer,
-# antes de qualquer decisao sobre criterio de leitura. Quando for pra
-# comecar de verdade, basta descomentar o bloco `schedule` abaixo.
-#
-#   schedule:
-#     - cron: "10 * * * *"
+# O criterio de leitura do resultado foi fixado ANTES disto, na secao 11
+# do ARCHITECTURE.md. Mexer nele depois de ver o numero seria
+# interpretacao conveniente, entao ele nao se mexe.
 #
 # Aos :10 e nao aos :05 pra nao concorrer com o workflow de coleta --
 # duas execucoes simultaneas gravando na mesma tabela nao quebrariam
@@ -26,6 +25,8 @@ name: Forward test (passo 8a)
 # `data-api.binance.vision`. Os outros endpoints respondem 451 pro IP do
 # runner. Nao troque isso sem reler o workflow de coleta.
 on:
+  schedule:
+    - cron: "10 * * * *"
   workflow_dispatch:
     inputs:
       pares:

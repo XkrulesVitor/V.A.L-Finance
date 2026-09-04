@@ -624,6 +624,17 @@ O único caso de alta, BNBUSDT, é **o de menor vantagem em retorno** (+0,53). O
 
 Uma janela, um período, cinco ativos. O `ema_crossover` já mostrou o que acontece quando se confia em poucos ativos: parecia ter vantagem, e a varredura de 10 moedas revelou ruído.
 
+#### Forward test iniciado em 2026-09-04
+
+Marco zero: `portfolio` vazia, duas contas de 10.000 (BTCUSDT e ETHUSDT), nenhuma decisão gravada. O agendamento roda de hora em hora, aos :10.
+
+Antes de ligar, duas execuções manuais no runner:
+
+1. **`--ensaio`** — conferiu que os secrets chegam ao processo, que o Supabase conecta e que o próprio YAML funciona. Não decide nem grava.
+2. **Ciclo real** — conferiu que a chamada ao Gemini funciona a partir do runner. As duas contas receberam `NO_TRADE` do cérebro (decisão dele, não erro), com tese registrada.
+
+**Deslize medido nas primeiras execuções: 0,11% e 0,23%.** É maior que os −0,10% do ensaio local, o que faz sentido: o cron acorda aos :10 e o preço já andou desde a abertura do candle. O número fica gravado a cada ciclo em `market_snapshot.deslize_pct` — se ele se acumular na mesma direção, é uma diferença sistemática contra o backtest e precisa ser descontada na comparação final.
+
 #### Critério de leitura do forward test — fixado ANTES de medir
 
 Registrado aqui de propósito, antes de a medição começar, porque depois de ver o número qualquer critério vira interpretação conveniente.
