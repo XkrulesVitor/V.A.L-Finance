@@ -321,6 +321,99 @@ def test_features_so_sao_calculadas_quando_consulta():
     assert analista.features_recebidas is None
 
 
+# --------------------------- varredura de fechamentos nao vistos
+
+def test_stop_rompido_em_candle_passado_e_pego():
+    # O caso que motivou a varredura. O agendamento do GitHub e melhor
+    # esforco -- medido: 25 execucoes em 80h. Se o stop romper num
+    # fechamento que o processo nao chegou a ver, conferir so o preco do
+    # momento perde a saida inteira.
+    candles = _candles()
+    candles[-4]["fechamento"] = 70_000.0          # rompeu num candle antigo
+    banco = SupabaseDuble(
+        portfolio=_posicionada(stop=78_000.0),
+        # ja processamos ate bem antes do candle que rompeu
+        decisions=[{"candle_fechamento_em": candles[-10]["fechamento_em"],
+                    "created_at": "2026-09-07T00:00:00+00:00"}],
+    )
+    # preco AGORA esta acima do stop: so ele nao acusaria nada
+    r = rodar_ciclo(banco, BinanceDuble(candles=candles, preco=80_000.0),
+                    AnalistaDuble(), "BTCUSDT")
+    assert r.acao == SELL, f"esperava SELL do candle passado, veio {r.acao}"
+
+
+def test_saida_usa_o_preco_do_candle_e_nao_o_de_agora():
+    # Sair ao preco atual registraria um resultado que nem o backtest nem
+    # uma ordem stop de verdade produziriam.
+    candles = _candles()
+    candles[-4]["fechamento"] = 70_000.0
+    banco = SupabaseDuble(
+        portfolio=_posicionada(stop=78_000.0),
+        decisions=[{"candle_fechamento_em": candles[-10]["fechamento_em"],
+                    "created_at": "2026-09-07T00:00:00+00:00"}],
+    )
+    rodar_ciclo(banco, BinanceDuble(candles=candles, preco=80_000.0),
+                AnalistaDuble(), "BTCUSDT")
+    ordem = banco.ultima_decisao()["order_result"]
+    assert ordem["preco"] == 70_000.0, (
+        f"devia sair no fechamento do candle (70.000), saiu em {ordem['preco']}"
+    )
+
+
+def test_candle_ja_processado_nao_e_reavaliado():
+    # Um rompimento ANTERIOR a ultima decisao ja foi julgado. Reavaliar
+    # faria o sistema vender por um evento que ele proprio ja analisou.
+    candles = _candles()
+    candles[-20]["fechamento"] = 70_000.0         # rompeu, mas ja foi visto
+    banco = SupabaseDuble(
+        portfolio=_posicionada(stop=78_000.0),
+        decisions=[{"candle_fechamento_em": candles[-10]["fechamento_em"],
+                    "created_at": "2026-09-07T00:00:00+00:00"}],
+    )
+    r = rodar_ciclo(banco, BinanceDuble(candles=candles, preco=80_000.0),
+                    AnalistaDuble(), "BTCUSDT")
+    assert r.acao != SELL, "nao podia vender por candle ja processado"
+
+
+def test_sem_historico_confere_o_preco_do_momento():
+    # Primeiro ciclo do par: nao ha "ultimo processado", entao o
+    # comportamento antigo (conferir o agora) tem que continuar valendo.
+    banco = SupabaseDuble(portfolio=_posicionada(stop=79_000.0))
+    r = rodar_ciclo(banco, BinanceDuble(preco=78_000.0), AnalistaDuble(), "BTCUSDT")
+    assert r.acao == SELL
+
+
+def test_varredura_ignora_o_candle_em_andamento():
+    # O candle aberto ainda pode mudar. Agir sobre ele e look-ahead ao
+    # contrario -- decidir com dado que ainda nao aconteceu.
+    candles = _candles()
+    candles[-1]["fechamento"] = 70_000.0          # o EM CURSO "rompeu"
+    banco = SupabaseDuble(
+        portfolio=_posicionada(stop=78_000.0),
+        decisions=[{"candle_fechamento_em": candles[-10]["fechamento_em"],
+                    "created_at": "2026-09-07T00:00:00+00:00"}],
+    )
+    r = rodar_ciclo(banco, BinanceDuble(candles=candles, preco=80_000.0),
+                    AnalistaDuble(), "BTCUSDT")
+    assert r.acao != SELL, "candle em andamento nao pode disparar saida"
+
+
+def test_primeiro_rompimento_ganha():
+    # Dois candles romperam. O correto e sair no PRIMEIRO -- e onde uma
+    # ordem stop de verdade teria disparado.
+    candles = _candles()
+    candles[-6]["fechamento"] = 77_000.0
+    candles[-3]["fechamento"] = 60_000.0
+    banco = SupabaseDuble(
+        portfolio=_posicionada(stop=78_000.0),
+        decisions=[{"candle_fechamento_em": candles[-10]["fechamento_em"],
+                    "created_at": "2026-09-07T00:00:00+00:00"}],
+    )
+    rodar_ciclo(banco, BinanceDuble(candles=candles, preco=80_000.0),
+                AnalistaDuble(), "BTCUSDT")
+    assert banco.ultima_decisao()["order_result"]["preco"] == 77_000.0
+
+
 # ------------------------------------------------------ falha do cerebro
 
 def test_falha_do_cerebro_nao_derruba_o_ciclo():
@@ -393,6 +486,12 @@ def _rodar_tudo() -> int:
         except AssertionError as erro:
             falhas.append(nome)
             print(f"  FALHA {nome}: {erro}")
+        except Exception as erro:  # noqa: BLE001
+            # Um teste que estoura com KeyError/TypeError e falha igual --
+            # e capturar so AssertionError fazia o arquivo inteiro morrer
+            # ali, escondendo o resultado de todos os testes seguintes.
+            falhas.append(nome)
+            print(f"  ERRO  {nome}: {type(erro).__name__}: {erro}")
     print(f"\n{len(testes) - len(falhas)}/{len(testes)} passaram")
     return 1 if falhas else 0
 

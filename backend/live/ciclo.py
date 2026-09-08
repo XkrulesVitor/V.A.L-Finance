@@ -53,6 +53,7 @@ from live.estado import (
     reivindicar_candle,
     salvar_conta,
     ultima_consulta_ms,
+    ultimo_candle_processado,
 )
 from live.execucao import comprar, medir_deslize, vender
 from risk.risk_engine import ParametrosDeRisco, avaliar_risco
@@ -103,6 +104,10 @@ def rodar_ciclo(
     em_curso = candles[-1] if len(candles) > len(fechados) else None
     preco_de_referencia = em_curso["abertura"] if em_curso else None
 
+    # Lido ANTES de reivindicar: a reivindicacao insere o candle atual e
+    # passaria a ser ela mesma a resposta desta consulta.
+    processado_ate = ultimo_candle_processado(supabase, par)
+
     # ---------- idempotencia, antes de decidir qualquer coisa ----------
     try:
         id_decisao = reivindicar_candle(supabase, par, ultimo_fechado["fechamento_em"])
@@ -129,24 +134,19 @@ def rodar_ciclo(
         },
     }
 
-    # ---------- ETAPA 1: stop/take, todo ciclo, sem features ----------
+    # ---------- ETAPA 1: stop/take em TODO fechamento nao visto ----------
     if posicao.aberta:
-        resultado = avaliar_risco(
-            tese=HOLD,
-            atr_14=None,
-            preco_atual=preco_atual,
-            posicao=posicao,
-            capital_total=capital,
-            parametros=parametros_base,
+        preco_gatilho, resultado = _primeiro_rompimento(
+            fechados, processado_ate, preco_atual, posicao, capital, parametros_base
         )
-        if resultado.acao_final == SELL:
-            motivo = _motivo_da_saida(posicao, preco_atual)
-            conta, preenchimento = vender(conta, preco_atual, motivo)
+        if resultado is not None and resultado.acao_final == SELL:
+            motivo = _motivo_da_saida(posicao, preco_gatilho)
+            conta, preenchimento = vender(conta, preco_gatilho, motivo)
             salvar_conta(supabase, conta)
             concluir_decisao(supabase, id_decisao, {
                 **registro,
                 "risk_result": resultado.como_dicionario(),
-                "order_result": preenchimento,
+                "order_result": {**preenchimento, "preco_gatilho": preco_gatilho},
                 "status": "executed",
                 "outcome": {
                     "resultado": preenchimento["resultado"],
@@ -226,6 +226,64 @@ def rodar_ciclo(
     })
     detalhe = resultado.motivo if not resultado.aprovado else resultado.acao_final
     return ResultadoDoCiclo(par, resultado.acao_final, detalhe, preco_atual)
+
+
+def _primeiro_rompimento(
+    fechados, processado_ate, preco_atual, posicao, capital, parametros
+):
+    """
+    Procura o PRIMEIRO fechamento que rompeu stop ou alvo desde a ultima
+    decisao -- e nao so o preco do instante em que o processo acordou.
+
+    ## Por que isto existe
+
+    O backtest confere a regra 1 no fechamento de CADA candle. O ciclo ao
+    vivo conferia so o preco do momento, e o agendamento do GitHub e
+    melhor-esforco: medido em 80h, 25 execucoes em vez de 80. Numa
+    posicao real de ETHUSDT, 26 candles fecharam e 6 foram conferidos --
+    77%% dos fechamentos nunca foram olhados. Nenhum tinha rompido o stop,
+    o que foi sorte e nao desenho.
+
+    Varrer os fechamentos pendentes desfaz essa dependencia: a decisao
+    passa a ser a mesma independentemente de quantas vezes o cron rodou.
+
+    ## Por que sair no preco do candle, e nao no preco de agora
+
+    Porque e o que o backtest faz, e porque e o que uma ordem stop de
+    verdade faria -- ela fica descansando na corretora e dispara no
+    rompimento, nao quando o nosso processo acorda. Sair ao preco atual
+    registraria um resultado que nenhuma das duas realidades produziria.
+
+    O candle em curso nao entra: `fechados` ja o excluiu, e agir sobre
+    preco que ainda pode mudar e look-ahead ao contrario.
+    """
+    pendentes = [
+        c for c in fechados
+        if processado_ate is None or c["fechamento_em"] > processado_ate
+    ]
+    # Sem nada pendente (primeiro ciclo, ou cron rodando em dia), confere
+    # o preco do momento -- comportamento antigo, que continua correto.
+    if not pendentes:
+        return preco_atual, avaliar_risco(
+            tese=HOLD, atr_14=None, preco_atual=preco_atual,
+            posicao=posicao, capital_total=capital, parametros=parametros,
+        )
+
+    for candle in pendentes:
+        preco = candle["fechamento"]
+        resultado = avaliar_risco(
+            tese=HOLD, atr_14=None, preco_atual=preco,
+            posicao=posicao, capital_total=capital, parametros=parametros,
+        )
+        if resultado.acao_final == SELL:
+            return preco, resultado
+
+    # Nenhum fechamento rompeu: avalia o agora, que ja andou desde o
+    # ultimo fechamento e pode ter rompido.
+    return preco_atual, avaliar_risco(
+        tese=HOLD, atr_14=None, preco_atual=preco_atual,
+        posicao=posicao, capital_total=capital, parametros=parametros,
+    )
 
 
 def _motivo_da_saida(posicao, preco_atual: float) -> str:

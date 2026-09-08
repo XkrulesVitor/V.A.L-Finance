@@ -518,6 +518,12 @@ def _rodar_tudo() -> int:
         except AssertionError as erro:
             falhas.append(nome)
             print(f"  FALHA {nome}: {erro}")
+        except Exception as erro:  # noqa: BLE001
+            # Um teste que estoura com KeyError/TypeError e falha igual --
+            # e capturar so AssertionError fazia o arquivo inteiro morrer
+            # ali, escondendo o resultado de todos os testes seguintes.
+            falhas.append(nome)
+            print(f"  ERRO  {nome}: {type(erro).__name__}: {erro}")
     print(f"\n{len(testes) - len(falhas)}/{len(testes)} passaram")
     return 1 if falhas else 0
 

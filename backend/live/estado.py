@@ -258,6 +258,48 @@ def concluir_decisao(supabase, id_decisao: str, campos: dict) -> None:
         ) from erro
 
 
+def ultimo_candle_processado(supabase, par: str) -> int | None:
+    """
+    O candle mais recente que ja foi decidido para este par.
+
+    Serve pra saber QUAIS candles o ciclo ainda nao olhou. O agendamento
+    do GitHub Actions e "melhor esforco": medido em 80h de operacao, ele
+    disparou 25 vezes em vez de 80 -- media de 3,34h entre execucoes, com
+    buracos de ate 5,74h.
+
+    Sem isto, a etapa 1 conferia o stop apenas contra o preco do momento
+    em que o processo acordava, e todo fechamento ocorrido no intervalo
+    passava em branco. Medido numa posicao real de ETHUSDT: 26 candles
+    fecharam, 6 foram conferidos, 77%% nunca foram olhados.
+
+    `None` = nunca processado, entao so o candle atual e avaliado.
+    """
+    try:
+        resposta = (
+            supabase.table(TABELA_DECISOES)
+            .select("candle_fechamento_em")
+            .eq("symbol", par)
+            .not_.is_("candle_fechamento_em", "null")
+            .order("candle_fechamento_em", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as erro:  # noqa: BLE001
+        if _e_coluna_ausente(erro):
+            raise ErroDeEstado(
+                f"a tabela `{TABELA_DECISOES}` ainda nao tem a coluna "
+                f"`candle_fechamento_em`. Rode `supabase/schema.sql`."
+            ) from erro
+        raise ErroDeEstado(
+            f"falha ao ler o ultimo candle processado de {par}: {erro}"
+        ) from erro
+
+    linhas = resposta.data or []
+    if not linhas or linhas[0].get("candle_fechamento_em") is None:
+        return None
+    return int(linhas[0]["candle_fechamento_em"])
+
+
 def ultima_consulta_ms(supabase, par: str) -> int | None:
     """
     Quando o cerebro foi consultado pela ultima vez para este par.

@@ -635,6 +635,29 @@ Antes de ligar, duas execuções manuais no runner:
 
 **Deslize medido nas primeiras execuções: 0,11% e 0,23%.** É maior que os −0,10% do ensaio local, o que faz sentido: o cron acorda aos :10 e o preço já andou desde a abertura do candle. O número fica gravado a cada ciclo em `market_snapshot.deslize_pct` — se ele se acumular na mesma direção, é uma diferença sistemática contra o backtest e precisa ser descontada na comparação final.
 
+#### O agendamento do GitHub Actions é melhor-esforço — medido
+
+Depois de 80 horas de operação real, o `schedule` disparou **25 vezes em vez de 80**.
+
+| | Pedido | Medido |
+|---|---|---|
+| Intervalo | 1h | **3,34h em média** |
+| Maior buraco | — | **5,74h** |
+| Taxa de disparo | 100% | **31%** |
+
+Isso não é bug do nosso código: cron do GitHub Actions é explicitamente sem garantia de horário, e atrasa sob carga da plataforma.
+
+**A consequência era séria.** A etapa 1 conferia o stop apenas contra o preço do instante em que o processo acordava. Numa posição real de ETHUSDT aberta em 06/09: **26 candles fecharam, 6 foram conferidos — 77% dos fechamentos nunca foram olhados.** Nenhum deles fechou abaixo do stop, então não houve perda; foi sorte, não desenho.
+
+**A correção não foi tentar consertar o agendamento — foi parar de depender dele.** O ciclo já busca 400 candles a cada execução, então ele agora varre **todo fechamento desde a última decisão** (`_primeiro_rompimento` em `live/ciclo.py`). A decisão passa a ser a mesma independentemente de quantas vezes o cron rodou.
+
+Dois detalhes que a varredura exigiu decidir:
+
+- **A saída acontece no preço do candle que rompeu**, não no preço de agora. É o que o backtest faz, e é o que uma ordem stop de verdade faria — ela fica descansando na corretora e dispara no rompimento, não quando o nosso processo acorda.
+- **O candle em curso não entra.** `somente_fechados` já o exclui, e agir sobre preço que ainda pode mudar seria look-ahead ao contrário.
+
+Uma correção de leitura, registrada porque a primeira versão desta análise errou: **o backtest compara o stop com o FECHAMENTO do candle, não com a mínima.** Numa vela de 07/09 a mínima furou o stop (2.466,00 contra 2.470,26) mas o fechamento não (2.470,43) — o backtest também não teria vendido. O desvio real era o de fechamentos não conferidos, não o de mínimas ignoradas.
+
 #### Critério de leitura do forward test — fixado ANTES de medir
 
 Registrado aqui de propósito, antes de a medição começar, porque depois de ver o número qualquer critério vira interpretação conveniente.
