@@ -1,12 +1,19 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import bruto from "@/lib/regimes.json";
+import { Cabecalho } from "@/app/_componentes/Cabecalho";
 
-/**
- * O JSON é um snapshot gerado offline, então o TypeScript o infere com as
- * chaves literais daquele arquivo. Tipar aqui deixa o acesso por índice
- * (estratégia × regime) checado de verdade, em vez de virar `any` silencioso.
+/*
+ * Estudo de regimes — snapshot, não dado ao vivo.
+ *
+ * Os 320 backtests rodaram uma vez, offline, e o agregado vive em
+ * `lib/regimes.json`. Não vai para o Supabase de propósito: 320 linhas em
+ * `backtest_runs` criariam 64 grupos de período na página de evidência e
+ * afogariam a comparação que aquela página existe para mostrar.
+ *
+ * Por ser snapshot, a data de geração aparece na tela. Estudo sem data
+ * vira "verdade atemporal" e envelhece sem avisar.
  */
+
 type Regime = "alta" | "lateral" | "baixa";
 type PorRegime = Record<Regime, number> & { geral: number };
 type Vantagem = PorRegime & { venceu: number; de: number };
@@ -31,25 +38,14 @@ type Estudo = {
 const dados = bruto as Estudo;
 
 export const metadata: Metadata = {
-  title: "Regimes — V.A.L Finance",
-  description: "320 backtests em 64 janelas: o desempenho muda por regime, mas o prêmio é pequeno.",
+  title: "Regimes",
+  description:
+    "320 backtests em 64 janelas: o regime muda tudo, mas não dá para prever.",
 };
-
-/**
- * Estudo de regimes — snapshot, não dado ao vivo.
- *
- * Os 320 backtests foram rodados uma vez, offline, e o resultado agregado
- * vive em `lib/regimes.json`. Não vai para o Supabase de propósito: 320
- * linhas em `backtest_runs` criariam 64 grupos de período na página de
- * backtests e afogariam a comparação que aquela página existe para mostrar.
- *
- * Por ser snapshot, a data de geração aparece na tela. Um estudo sem data
- * vira "verdade atemporal" e envelhece sem avisar.
- */
 
 const REGIMES: Regime[] = ["alta", "lateral", "baixa"];
 
-const ROTULOS: Record<string, string> = {
+const NOME: Record<string, string> = {
   buy_and_hold: "Comprar e segurar",
   ema_crossover: "Cruzamento de médias",
   rsi_reversao: "RSI reversão",
@@ -57,283 +53,161 @@ const ROTULOS: Record<string, string> = {
   acima_da_ema200: "Acima da EMA 200",
 };
 
-function corRetorno(v: number) {
-  if (v > 5) return "text-[#3ddc84]";
-  if (v < -5) return "text-[#e07a5f]";
-  return "text-[#d8f5df]";
-}
-
-function corVantagem(v: number) {
-  if (v > 1) return "text-[#3ddc84]";
-  if (v < -1) return "text-[#e07a5f]";
-  return "text-[#eda100]";
-}
+const tom = (v: number) =>
+  v > 3 ? "text-vale-alta" : v < -3 ? "text-vale-baixa" : "text-vale-tinta-2";
 
 export default function Regimes() {
-  const { por_regime, vantagem, oraculo, detector_real, transicoes, contagem_regime } = dados;
+  const { por_regime, oraculo, detector_real, contagem_regime } = dados;
   const acerto = (detector_real.acertos / detector_real.de) * 100;
-  const maiorRegime = REGIMES.reduce((a, b) =>
+  const maior = REGIMES.reduce((a, b) =>
     contagem_regime[a] >= contagem_regime[b] ? a : b
   );
-  const chuteBase = (contagem_regime[maiorRegime] / dados.janelas) * 100;
+  const chuteBase = (contagem_regime[maior] / dados.janelas) * 100;
 
   return (
-    <main className="min-h-screen bg-[#0a0e0c] text-[#d8f5df] font-mono px-6 py-10">
-      <div className="max-w-5xl mx-auto">
-        <nav className="flex items-center gap-4 text-xs mb-8">
-          <Link href="/" className="text-[#5c9d78] hover:text-[#3ddc84] transition-colors">
-            ← pipeline
-          </Link>
-          <span className="text-[#1c2b21]">/</span>
-          <Link href="/backtests" className="text-[#5c9d78] hover:text-[#3ddc84] transition-colors">
-            backtests
-          </Link>
-          <span className="text-[#1c2b21]">/</span>
-          <span className="text-[#3ddc84]">regimes</span>
-        </nav>
+    <>
+      <Cabecalho atual="/regimes" />
 
-        <h1 className="text-xl mb-1 text-[#eafff0]">
-          Regimes de mercado <span className="text-[#5c9d78]">/ estudo</span>
-        </h1>
-        <p className="text-xs text-[#5c9d78] mb-8 max-w-2xl leading-relaxed">
-          {dados.backtests} backtests em {dados.janelas} janelas de 91 dias (8 ativos × 8 períodos,
-          ~2 anos), sem nenhuma chamada de API. Cada janela rotulada pelo comportamento do próprio
-          ativo: alta acima de +10%, baixa abaixo de −10%, lateral no meio.
-        </p>
-
-        {/* ---------- o número que decide ---------- */}
-        <section className="border border-[#3d3115] bg-[#181307] rounded p-4 mb-10">
-          <div className="text-[10px] uppercase tracking-widest text-[#eda100] mb-3">
-            o número que decide se vale um seletor de regime
+      <main className="mx-auto max-w-[1240px] px-5 pb-28 sm:px-8">
+        <section className="grid grid-cols-1 gap-10 pt-14 pb-16 lg:grid-cols-12 lg:pt-20">
+          <div className="lg:col-span-7">
+            <h1 className="text-[clamp(2rem,4.5vw,2.9rem)] font-medium leading-[1.05] tracking-[-0.035em]">
+              O regime muda tudo.
+              <br />
+              E não dá para prever.
+            </h1>
+            <p className="mt-5 max-w-[54ch] text-[14.5px] leading-relaxed text-vale-tinta-2">
+              {dados.backtests} backtests em {dados.janelas} janelas de 91 dias, sem
+              nenhuma chamada de API. A pergunta era se vale construir um seletor de
+              regime. A resposta é não, e os dois números abaixo explicam por quê.
+            </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3 mb-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                comprar e segurar
-              </div>
-              <div className="text-lg tabular-nums text-[#d8f5df]">
-                {oraculo.buy_and_hold.toFixed(2)}%
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                seletor com regime perfeito
-              </div>
-              <div className="text-lg tabular-nums text-[#d8f5df]">
-                {oraculo.perfeito.toFixed(2)}%
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                teto do ganho
-              </div>
-              <div className="text-lg tabular-nums text-[#eda100]">
-                +{oraculo.teto.toFixed(2)} pts
-              </div>
-            </div>
-          </div>
-          <p className="text-[11px] text-[#5c9d78] leading-relaxed">
-            Mesmo <strong className="text-[#d8f5df]">sabendo o futuro</strong>, um seletor de regime
-            ganharia {oraculo.teto.toFixed(2)} pontos. Esse é o limite superior, inalcançável.
-          </p>
         </section>
 
-        {/* ---------- detector realista ---------- */}
-        <section className="border border-[#3d1a14] bg-[#1a0d0a] rounded p-4 mb-10">
-          <div className="text-[10px] uppercase tracking-widest text-[#e07a5f] mb-3">
-            e o detector honesto destrói valor
-          </div>
-          <div className="grid gap-4 sm:grid-cols-4 mb-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                acertou o regime
-              </div>
-              <div className="text-lg tabular-nums text-[#e07a5f]">
-                {detector_real.acertos}/{detector_real.de}
-              </div>
-              <div className="text-[10px] text-[#3d5c48]">{acerto.toFixed(0)}%</div>
+        {/* ------------------------------------------- os dois números ---- */}
+        <section className="grid grid-cols-1 gap-px border border-vale-fio bg-vale-fio lg:grid-cols-2">
+          <div className="bg-vale-superficie p-7">
+            <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+              teto com regime perfeito
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                adaptativo
-              </div>
-              <div className="text-lg tabular-nums text-[#d8f5df]">
-                {detector_real.adaptativo.toFixed(2)}%
-              </div>
+            <div className="num mt-3 text-[38px] leading-none tracking-[-0.04em] text-vale-tinta">
+              +{oraculo.teto.toFixed(2)}
+              <span className="ml-1.5 text-[16px] text-vale-tinta-3">pts</span>
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                comprar e segurar
-              </div>
-              <div className="text-lg tabular-nums text-[#d8f5df]">
-                {detector_real.buy_and_hold.toFixed(2)}%
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-1">
-                ganho real
-              </div>
-              <div className="text-lg tabular-nums text-[#e07a5f]">
-                {detector_real.ganho.toFixed(2)} pts
-              </div>
+            <p className="mt-4 max-w-[44ch] text-[13.5px] leading-relaxed text-vale-tinta-2">
+              Mesmo <strong className="font-medium text-vale-tinta">sabendo o futuro</strong>,
+              um seletor ganharia isso sobre o comprar-e-segurar. É o limite superior,
+              inalcançável.
+            </p>
+            <div className="num mt-5 flex gap-6 border-t border-vale-fio pt-4 text-[12px] text-vale-tinta-3">
+              <span>
+                comprar e segurar{" "}
+                <span className="text-vale-tinta-2">{oraculo.buy_and_hold.toFixed(2)}%</span>
+              </span>
+              <span>
+                oráculo{" "}
+                <span className="text-vale-tinta-2">{oraculo.perfeito.toFixed(2)}%</span>
+              </span>
             </div>
           </div>
-          <p className="text-[11px] text-[#5c9d78] leading-relaxed">
-            Detector = o regime da janela anterior, sem olhar o futuro.{" "}
-            {acerto.toFixed(0)}% de acerto é <strong className="text-[#d8f5df]">pior que chutar
-            &ldquo;{maiorRegime}&rdquo; sempre</strong> ({chuteBase.toFixed(0)}% das janelas).
-          </p>
+
+          <div className="bg-vale-superficie p-7">
+            <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+              ganho com detector honesto
+            </div>
+            <div className="num mt-3 text-[38px] leading-none tracking-[-0.04em] text-vale-baixa">
+              {detector_real.ganho.toFixed(2)}
+              <span className="ml-1.5 text-[16px] text-vale-tinta-3">pts</span>
+            </div>
+            <p className="mt-4 max-w-[44ch] text-[13.5px] leading-relaxed text-vale-tinta-2">
+              Usando o regime da janela anterior, sem olhar o futuro:{" "}
+              {acerto.toFixed(0)}% de acerto,{" "}
+              <strong className="font-medium text-vale-tinta">
+                pior que chutar sempre &ldquo;{maior}&rdquo;
+              </strong>{" "}
+              ({chuteBase.toFixed(0)}%).
+            </p>
+            <div className="num mt-5 flex gap-6 border-t border-vale-fio pt-4 text-[12px] text-vale-tinta-3">
+              <span>
+                adaptativo{" "}
+                <span className="text-vale-baixa">{detector_real.adaptativo.toFixed(2)}%</span>
+              </span>
+              <span>
+                acertou{" "}
+                <span className="text-vale-tinta-2">
+                  {detector_real.acertos}/{detector_real.de}
+                </span>
+              </span>
+            </div>
+          </div>
         </section>
 
-        {/* ---------- retorno por regime ---------- */}
-        <section className="mb-10">
-          <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-2">
-            retorno médio por estratégia × regime
+        {/* ------------------------------------------------ por regime ---- */}
+        <section className="mt-20">
+          <div className="mb-4 flex items-baseline justify-between gap-4 border-b border-vale-fio pb-3">
+            <h2 className="text-[19px] font-medium tracking-[-0.02em]">
+              Retorno médio por regime
+            </h2>
+            <span className="num text-[11.5px] text-vale-tinta-3">
+              {REGIMES.map((r) => `${r} ${contagem_regime[r]}`).join(" · ")}
+            </span>
           </div>
-          <div className="overflow-x-auto border border-[#1c2b21] rounded">
-            <table className="w-full text-sm min-w-[36rem]">
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse">
               <thead>
-                <tr className="text-[10px] uppercase tracking-widest text-[#3d5c48]">
-                  <th className="text-left font-normal px-4 py-2.5">estratégia</th>
+                <tr className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+                  <th className="pb-2.5 text-left font-normal">estratégia</th>
                   {REGIMES.map((r) => (
-                    <th key={r} className="text-right font-normal px-4 py-2.5">
-                      {r}{" "}
-                      <span className="text-[#2d4636]">({contagem_regime[r]})</span>
+                    <th key={r} className="pb-2.5 text-right font-normal">
+                      {r}
                     </th>
                   ))}
-                  <th className="text-right font-normal px-4 py-2.5">geral</th>
+                  <th className="pb-2.5 text-right font-normal">geral</th>
                 </tr>
               </thead>
               <tbody>
-                {dados.estrategias.map((n) => (
-                  <tr key={n} className="border-t border-[#141f18]">
-                    <td className="px-4 py-2.5 text-[#d8f5df]">{ROTULOS[n] ?? n}</td>
+                {dados.estrategias.map((e) => (
+                  <tr key={e} className="border-t border-vale-fio">
+                    <td className="py-3 pr-4 text-[13.5px] text-vale-tinta">
+                      {NOME[e] ?? e}
+                    </td>
                     {REGIMES.map((r) => (
                       <td
                         key={r}
-                        className={`text-right px-4 py-2.5 tabular-nums ${corRetorno(por_regime[n][r])}`}
+                        className={`num py-3 text-right text-[13.5px] ${tom(por_regime[e]?.[r] ?? 0)}`}
                       >
-                        {por_regime[n][r] > 0 ? "+" : ""}
-                        {por_regime[n][r].toFixed(2)}%
+                        {(por_regime[e]?.[r] ?? 0).toFixed(1)}%
                       </td>
                     ))}
                     <td
-                      className={`text-right px-4 py-2.5 tabular-nums ${corRetorno(por_regime[n].geral)}`}
+                      className={`num py-3 text-right text-[13.5px] ${tom(por_regime[e]?.geral ?? 0)}`}
                     >
-                      {por_regime[n].geral > 0 ? "+" : ""}
-                      {por_regime[n].geral.toFixed(2)}%
+                      {(por_regime[e]?.geral ?? 0).toFixed(1)}%
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-[10px] text-[#3d5c48] mt-2 leading-relaxed max-w-2xl">
-            O RSI perde 39 pontos para o comprar-e-segurar em alta e ganha 18 em baixa — variação de
-            57 pontos conforme o regime. Não é ruído, é estrutura.
+
+          <p className="mt-6 max-w-[70ch] border-l-2 border-vale-fio-forte pl-4 text-[13px] leading-relaxed text-vale-tinta-3">
+            A premissa se confirma: o desempenho varia muito com o regime. O que não se
+            confirma é a conclusão prática — o prêmio por acertar o regime é pequeno, e
+            acertar não é possível. Foi isso que matou a ideia do seletor adaptativo
+            antes de custar uma linha de código.
           </p>
         </section>
 
-        {/* ---------- vantagem sobre b&h ---------- */}
-        <section className="mb-10">
-          <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-2">
-            vantagem sobre o comprar-e-segurar (pontos)
-          </div>
-          <div className="overflow-x-auto border border-[#1c2b21] rounded">
-            <table className="w-full text-sm min-w-[36rem]">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-widest text-[#3d5c48]">
-                  <th className="text-left font-normal px-4 py-2.5">estratégia</th>
-                  {REGIMES.map((r) => (
-                    <th key={r} className="text-right font-normal px-4 py-2.5">{r}</th>
-                  ))}
-                  <th className="text-right font-normal px-4 py-2.5">geral</th>
-                  <th className="text-right font-normal px-4 py-2.5">venceu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(vantagem).map(([n, v]) => (
-                  <tr key={n} className="border-t border-[#141f18]">
-                    <td className="px-4 py-2.5 text-[#d8f5df]">{ROTULOS[n] ?? n}</td>
-                    {REGIMES.map((r) => (
-                      <td
-                        key={r}
-                        className={`text-right px-4 py-2.5 tabular-nums ${corVantagem(v[r])}`}
-                      >
-                        {v[r] > 0 ? "+" : ""}
-                        {v[r].toFixed(2)}
-                      </td>
-                    ))}
-                    <td className={`text-right px-4 py-2.5 tabular-nums ${corVantagem(v.geral)}`}>
-                      {v.geral > 0 ? "+" : ""}
-                      {v.geral.toFixed(2)}
-                    </td>
-                    <td className="text-right px-4 py-2.5 tabular-nums text-[#5c9d78]">
-                      {v.venceu}/{v.de}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[10px] text-[#3d5c48] mt-2 leading-relaxed max-w-2xl">
-            Nenhuma estratégia bate o comprar-e-segurar no geral, e todas vencem em menos da metade
-            das janelas.
-          </p>
-        </section>
-
-        {/* ---------- transições ---------- */}
-        <section className="mb-10">
-          <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-2">
-            o regime persiste? (linha = anterior, coluna = seguinte)
-          </div>
-          <div className="overflow-x-auto border border-[#1c2b21] rounded">
-            <table className="w-full text-sm min-w-[26rem]">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-widest text-[#3d5c48]">
-                  <th className="text-left font-normal px-4 py-2.5">de \ para</th>
-                  {REGIMES.map((r) => (
-                    <th key={r} className="text-right font-normal px-4 py-2.5">{r}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {REGIMES.map((a) => {
-                  const total = REGIMES.reduce((s, b) => s + transicoes[a][b], 0) || 1;
-                  return (
-                    <tr key={a} className="border-t border-[#141f18]">
-                      <td className="px-4 py-2.5 text-[#d8f5df]">{a}</td>
-                      {REGIMES.map((b) => {
-                        const pct = (transicoes[a][b] / total) * 100;
-                        return (
-                          <td
-                            key={b}
-                            className="text-right px-4 py-2.5 tabular-nums"
-                            style={{ color: `rgb(${216 - pct * 1.2}, ${245 - pct}, ${223 - pct})` }}
-                          >
-                            {pct.toFixed(0)}%
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[10px] text-[#3d5c48] mt-2 leading-relaxed max-w-2xl">
-            Depois de uma janela de alta vem 31% alta, 34% lateral, 34% baixa. É praticamente
-            sorteio — e é por isso que o detector não funciona.
-          </p>
-        </section>
-
-        <p className="text-[10px] text-[#2d4636] leading-relaxed max-w-2xl">
-          Estudo rodado uma vez em {dados.gerado_em}, offline. Não é dado ao vivo. Viés conhecido e
-          não corrigido: os ativos são majors que existem hoje — quem morreu no caminho não está na
-          amostra, então os retornos absolutos são otimistas. A comparação entre estratégias segue
-          válida: todas enfrentaram as mesmas janelas.
+        <p className="num mt-16 text-[11px] text-vale-tinta-3">
+          snapshot gerado em{" "}
+          {new Date(dados.gerado_em).toLocaleDateString("pt-BR", {
+            day: "2-digit",
+            month: "long",
+            year: "numeric",
+          })}
         </p>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

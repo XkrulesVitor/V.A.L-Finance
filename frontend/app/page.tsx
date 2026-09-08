@@ -1,113 +1,110 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
 import { Diagnostico } from "@/app/Diagnostico";
 import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
+import { Cabecalho } from "@/app/_componentes/Cabecalho";
+import { CurvaDeCapital, type Ponto } from "@/app/_componentes/CurvaDeCapital";
+import { FluxoDeDecisoes } from "@/app/_componentes/FluxoDeDecisoes";
 
 export const metadata: Metadata = {
-  title: "Pipeline — V.A.L Finance",
-  description: "Último ciclo de coleta e indicadores de cada ativo.",
+  title: "Operação",
+  description:
+    "Estado ao vivo do forward test: capital, posições e as decisões que o sistema tomou.",
 };
 
 export const revalidate = 0;
 
-/**
- * Status honesto do pipeline.
+/*
+ * Superfície de operação.
  *
- * A versão anterior desta página dizia "pipeline ativo / passo 1 — esqueleto"
- * de forma estática, independente do que estivesse acontecendo. Isso é pior
- * que não mostrar nada: um painel que afirma estar vivo sem checar nada
- * ensina a não confiar nele. Aqui todo estado vem do dado — se o cron parou
- * de rodar, a página diz que parou.
+ * A página existe para responder uma pergunta em um olhar: o sistema está
+ * vivo e quanto ele está fazendo. Tudo aqui vem do banco — não há um único
+ * número escrito à mão. Se o cron parar, a página diz que parou.
  */
 
-type Features = {
-  rsi_14: number | null;
-  atr_14: number | null;
-  ema_20: number | null;
-  ema_50: number | null;
-  ema_200: number | null;
-  volume_relativo: number | null;
-  retorno_24h: number | null;
-  macd: { histograma: number | null } | null;
-};
+const CAPITAL_POR_CONTA = 10_000;
 
-type Decision = {
+type Decisao = {
   id: string;
   created_at: string;
   symbol: string;
+  status: string;
+  candle_fechamento_em: number | null;
   market_snapshot: {
     preco_atual: number;
-    candles_em_andamento_descartados?: number;
+    conta?: { caixa: number; quantidade: number };
+    deslize_pct?: number | null;
   } | null;
-  features: Features | null;
-  llm_output: unknown | null;
-  risk_result: unknown | null;
-  status: string;
+  llm_output: { direction: string; horizon: string; confidence: number; reasoning: string } | null;
+  risk_result: {
+    acao_final: string;
+    aprovado: boolean;
+    override_do_llm: boolean;
+    motivo: string;
+    direcao_do_llm?: string | null;
+  } | null;
+  order_result: { lado: string; preco: number; resultado_pct?: number | null } | null;
+};
+
+type Posicao = {
+  asset: string;
+  quantity: number;
+  caixa: number | null;
+  preco_entrada: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
 };
 
 async function carregar() {
-  const supabase = getSupabaseClient();
-  const [ultimas, total] = await Promise.all([
-    supabase
+  const sb = getSupabaseClient();
+  const [ciclos, carteira, coleta] = await Promise.all([
+    sb
       .from("decisions")
-      .select("*")
+      .select(
+        "id, created_at, symbol, status, candle_fechamento_em, market_snapshot, llm_output, risk_result, order_result"
+      )
+      .not("candle_fechamento_em", "is", null)
+      .order("created_at", { ascending: true }),
+    sb.from("portfolio").select("asset, quantity, caixa, preco_entrada, stop_loss, take_profit"),
+    sb
+      .from("decisions")
+      .select("created_at")
+      .is("candle_fechamento_em", null)
       .order("created_at", { ascending: false })
-      .limit(30),
-    supabase.from("decisions").select("id", { count: "exact", head: true }),
+      .limit(1),
   ]);
-  if (ultimas.error) throw new Error(`Supabase: ${ultimas.error.message}`);
+
+  if (ciclos.error) throw new Error(`Supabase: ${ciclos.error.message}`);
+
   return {
-    decisions: (ultimas.data ?? []) as Decision[],
-    total: total.count ?? 0,
+    ciclos: (ciclos.data ?? []) as Decisao[],
+    carteira: (carteira.data ?? []) as Posicao[],
+    ultimaColeta: coleta.data?.[0]?.created_at ?? null,
   };
 }
 
-const n = (v: number | null | undefined, casas = 2) =>
-  v === null || v === undefined ? "—" : v.toFixed(casas);
+/** Capital total por instante, somando as contas de cada par. */
+function montarCurva(ciclos: Decisao[], pares: string[]): Ponto[] {
+  const ultimo = new Map<string, number>(pares.map((p) => [p, CAPITAL_POR_CONTA]));
+  const saida: Ponto[] = [];
 
-const preco = (v: number | null | undefined) =>
-  v === null || v === undefined
-    ? "—"
-    : v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
-
-/** Tendência lida das três médias — o dado que o cérebro recebe. */
-function tendencia(f: Features | null) {
-  if (!f?.ema_20 || !f.ema_50 || !f.ema_200) return { txt: "—", cor: "text-[#3d5c48]" };
-  if (f.ema_20 > f.ema_50 && f.ema_50 > f.ema_200)
-    return { txt: "alta alinhada", cor: "text-[#3ddc84]" };
-  if (f.ema_20 < f.ema_50 && f.ema_50 < f.ema_200)
-    return { txt: "baixa alinhada", cor: "text-[#e07a5f]" };
-  return { txt: "sem alinhamento", cor: "text-[#eda100]" };
+  for (const c of ciclos) {
+    const ms = c.market_snapshot;
+    const conta = ms?.conta;
+    if (!ms || !conta) continue;
+    ultimo.set(c.symbol, (conta.caixa ?? 0) + (conta.quantidade ?? 0) * ms.preco_atual);
+    let total = 0;
+    for (const p of pares) total += ultimo.get(p) ?? CAPITAL_POR_CONTA;
+    saida.push({ t: c.created_at, equity: total });
+  }
+  return saida;
 }
 
-function corDoRsi(rsi: number | null | undefined) {
-  if (rsi === null || rsi === undefined) return "text-[#3d5c48]";
-  if (rsi < 30) return "text-[#3ddc84]";
-  if (rsi > 70) return "text-[#e07a5f]";
-  return "text-[#d8f5df]";
-}
+const moeda = (v: number) =>
+  v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const PASSOS = [
-  { n: 1, nome: "Repositório e esqueleto", estado: "ok" },
-  { n: 2, nome: "Feature Engine", estado: "ok" },
-  { n: 3, nome: "Motor de backtest", estado: "ok" },
-  { n: 4, nome: "Baseline", estado: "ok" },
-  { n: 5, nome: "Cérebro (LLM)", estado: "ok" },
-  { n: 6, nome: "Risk Engine", estado: "ok" },
-  { n: 7, nome: "Backtest da híbrida", estado: "ok" },
-  // 8 virou 8a/8b depois de o passo 7 fechar. 8a (forward test, execucao
-  // simulada ao preco real) tem o codigo pronto e testado, mas a medicao
-  // ainda nao comecou -- o workflow esta em disparo manual de proposito,
-  // porque a data de inicio E o comeco da medicao. Por isso "parcial",
-  // e nao "ok": codigo pronto nao e resultado.
-  { n: 8, nome: "Forward test (8a)", estado: "parcial" },
-  { n: 9, nome: "Ordens na testnet (8b)", estado: "pendente" },
-  { n: 10, nome: "Dashboard completo", estado: "pendente" },
-] as const;
-
-export default async function Home() {
-  // Sem as variáveis, consultar o Supabase estoura com uma mensagem
-  // que não ajuda. Melhor dizer o que falta.
+export default async function Operacao() {
   const faltando = variaveisFaltando();
   if (faltando.length) return <Diagnostico faltando={faltando} />;
 
@@ -115,216 +112,313 @@ export default async function Home() {
   try {
     dados = await carregar();
   } catch (e) {
-    // O servidor sabe o que falhou. Mostrar é mais útil que esconder atrás
-    // de um digest que ninguém consegue traduzir.
     return <Diagnostico erro={e instanceof Error ? e.message : String(e)} />;
   }
-  const { decisions, total } = dados;
+  const { ciclos, carteira, ultimaColeta } = dados;
 
-  // Um ciclo por símbolo: a lista vem ordenada por data, então o primeiro
-  // de cada símbolo é o mais recente.
-  const porSimbolo = new Map<string, Decision>();
-  for (const d of decisions) if (!porSimbolo.has(d.symbol)) porSimbolo.set(d.symbol, d);
-  const recentes = [...porSimbolo.values()];
+  const pares = [...new Set(ciclos.map((c) => c.symbol))].sort();
+  const curva = montarCurva(ciclos, pares);
+  const inicial = pares.length * CAPITAL_POR_CONTA;
 
-  const ultimo = decisions[0];
-  const minutos = ultimo
-    ? Math.round((Date.now() - new Date(ultimo.created_at).getTime()) / 60000)
+  // O capital atual sai da carteira gravada, não do último ponto da curva:
+  // a carteira é a verdade, a curva é a leitura dela ao longo do tempo.
+  const precoDe = new Map<string, number>();
+  for (const c of ciclos) if (c.market_snapshot) precoDe.set(c.symbol, c.market_snapshot.preco_atual);
+
+  const atual = pares.reduce((soma, par) => {
+    const p = carteira.find((x) => x.asset === par);
+    if (!p) return soma + CAPITAL_POR_CONTA;
+    return soma + (p.caixa ?? 0) + (p.quantity ?? 0) * (precoDe.get(par) ?? 0);
+  }, 0);
+
+  const delta = atual - inicial;
+  const deltaPct = (atual / inicial - 1) * 100;
+  const positivo = delta >= 0;
+
+  const ultimoCiclo = ciclos[ciclos.length - 1];
+  const minutosDesde = ultimoCiclo
+    ? Math.round((Date.now() - new Date(ultimoCiclo.created_at).getTime()) / 60000)
     : null;
+  // O agendamento do GitHub é melhor-esforço (medido: 3,3 h de intervalo
+  // médio). Um limiar de 1 h chamaria de "parado" um sistema saudável.
+  const vivo = minutosDesde !== null && minutosDesde < 420;
 
-  // O cron roda de hora em hora, aos 5 min (render.yaml). Passar de 75 min
-  // significa que uma execução foi pulada — dizer "ativo" nesse caso seria
-  // mentira útil para ninguém. O limiar acompanha o cron: se a cadência lá
-  // mudar, este número muda junto, senão a página passa a mentir sozinha.
-  const vivo = minutos !== null && minutos < 75;
-  const jaOperou = decisions.some((d) => d.risk_result !== null);
+  const operacoes = ciclos.filter((c) => c.order_result);
+  const fechadas = operacoes.filter((c) => c.order_result?.resultado_pct != null);
+  const inicio = ciclos[0]?.created_at;
 
   return (
-    <main className="min-h-screen bg-[#0a0e0c] text-[#d8f5df] font-mono px-6 py-10">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-2 mb-1">
-          <span
-            className={`h-2 w-2 rounded-full ${
-              vivo ? "bg-[#3ddc84] animate-pulse" : ultimo ? "bg-[#eda100]" : "bg-[#3d5c48]"
-            }`}
-          />
-          <span className="text-xs uppercase tracking-widest text-[#5c9d78]">
-            {vivo
-              ? "pipeline ativo"
-              : ultimo
-                ? `sem gravar há ${minutos} min`
-                : "nunca rodou"}
-          </span>
-        </div>
+    <>
+      <Cabecalho atual="/" />
 
-        <h1 className="text-xl mb-2 text-[#eafff0]">
-          V.A.L Finance <span className="text-[#5c9d78]">/ coleta e indicadores</span>
-        </h1>
-
-        <p className="text-xs text-[#5c9d78] mb-6 max-w-2xl leading-relaxed">
-          O cron busca candles, descarta o que ainda não fechou, calcula os indicadores e grava.
-          <span className="text-[#eda100]">
-            {" "}
-            Ainda não decide nada e nunca enviou ordem
-          </span>{" "}
-          — nem em testnet. A decisão automática entra no passo 8.
-        </p>
-
-        <nav className="mb-8">
-          <Link
-            href="/backtests"
-            className="text-xs text-[#5c9d78] hover:text-[#3ddc84] transition-colors"
-          >
-            ver backtests e cota →
-          </Link>
-          <span className="text-[#1c2b21] mx-3">·</span>
-          <Link
-            href="/regimes"
-            className="text-xs text-[#5c9d78] hover:text-[#3ddc84] transition-colors"
-          >
-            estudo de regimes →
-          </Link>
-        </nav>
-
-        {/* ---------- roteiro ---------- */}
-        <section className="mb-8">
-          <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-2">roteiro</div>
-          <div className="flex flex-wrap gap-1.5">
-            {PASSOS.map((p) => (
-              <span
-                key={p.n}
-                title={p.nome}
-                className={`text-[10px] px-2 py-1 rounded border ${
-                  p.estado === "ok"
-                    ? "border-[#1e3d2a] text-[#3ddc84] bg-[#0e1a13]"
-                    : p.estado === "parcial"
-                      ? "border-[#3d3115] text-[#eda100] bg-[#181307]"
-                      : "border-[#1c2b21] text-[#3d5c48]"
-                }`}
-              >
-                {p.n}. {p.nome}
-                {p.estado === "parcial" && " ⚠"}
+      <main className="mx-auto max-w-[1240px] px-5 pb-28 sm:px-8">
+        {/* ---------------------------------------------------- estado ---- */}
+        <section className="grid grid-cols-1 gap-10 pt-14 pb-16 lg:grid-cols-12 lg:gap-14 lg:pt-20">
+          <div className="lg:col-span-5">
+            <div className="flex items-center gap-2 text-[12px] text-vale-tinta-3">
+              <Pulso vivo={vivo} />
+              <span className="num">
+                {vivo ? "operando" : `sem ciclo há ${minutosDesde} min`}
               </span>
-            ))}
+              <span className="text-vale-fio-forte">/</span>
+              <span className="num">{ciclos.length} ciclos</span>
+              {inicio && (
+                <>
+                  <span className="text-vale-fio-forte">/</span>
+                  <span className="num">
+                    desde{" "}
+                    {new Date(inicio).toLocaleDateString("pt-BR", {
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </span>
+                </>
+              )}
+            </div>
+
+            <h1 className="num mt-5 text-[clamp(2.75rem,7vw,4.25rem)] leading-[0.95] tracking-[-0.045em] text-vale-tinta">
+              {moeda(atual)}
+            </h1>
+
+            <div className="mt-3 flex items-baseline gap-3">
+              <span
+                className={`num text-[19px] ${positivo ? "text-vale-alta" : "text-vale-baixa"}`}
+              >
+                {positivo ? "+" : ""}
+                {moeda(delta)}
+              </span>
+              <span
+                className={`num text-[14px] ${positivo ? "text-vale-alta" : "text-vale-baixa"}`}
+              >
+                {positivo ? "+" : ""}
+                {deltaPct.toFixed(2)}%
+              </span>
+              <span className="text-[13px] text-vale-tinta-3">
+                de {moeda(inicial)}
+              </span>
+            </div>
+
+            <p className="mt-6 max-w-[46ch] text-[14.5px] leading-relaxed text-vale-tinta-2">
+              Execução simulada ao preço real de mercado. O cérebro propõe, o motor
+              de risco decide, e nenhuma ordem sai para corretora.
+            </p>
+          </div>
+
+          <div className="lg:col-span-7">
+            <CurvaDeCapital pontos={curva} inicial={inicial} altura={230} />
           </div>
         </section>
 
-        {/* ---------- último ciclo por símbolo ---------- */}
-        {recentes.length === 0 ? (
-          <p className="text-[#5c9d78] text-sm">
-            Nenhum registro ainda. Rode{" "}
-            <span className="text-[#8fd4a8]">python backend/main.py</span> pra gerar o primeiro.
-          </p>
-        ) : (
-          <>
-            <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-2">
-              último ciclo por ativo
-            </div>
-            <div className="flex flex-col gap-px bg-[#1c2b21] border border-[#1c2b21] rounded overflow-hidden">
-              {recentes.map((d) => {
-                const f = d.features;
-                const t = tendencia(f);
-                const ret = f?.retorno_24h;
-                return (
-                  <article key={d.id} className="bg-[#0d1310] px-4 py-4">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
-                      <span className="text-sm text-[#eafff0]">{d.symbol}</span>
-                      <span className="text-sm tabular-nums text-[#d8f5df]">
-                        {preco(d.market_snapshot?.preco_atual)}
-                      </span>
-                      {ret !== null && ret !== undefined && (
-                        <span
-                          className={`text-xs tabular-nums ${
-                            ret >= 0 ? "text-[#3ddc84]" : "text-[#e07a5f]"
-                          }`}
-                        >
-                          {ret > 0 ? "+" : ""}
-                          {n(ret)}% 24h
-                        </span>
-                      )}
-                      <span className="ml-auto text-[10px] text-[#3d5c48]">
-                        {new Date(d.created_at).toLocaleString("pt-BR")}
-                      </span>
-                    </div>
+        {/* ---------------------------------------------------- contas ---- */}
+        <section className="grid grid-cols-1 gap-px border border-vale-fio bg-vale-fio sm:grid-cols-2">
+          {pares.map((par) => (
+            <Conta
+              key={par}
+              par={par}
+              posicao={carteira.find((x) => x.asset === par)}
+              preco={precoDe.get(par)}
+            />
+          ))}
+        </section>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-3">
-                      <div className="flex flex-col gap-0.5">
-                        <span
-                          className="text-[10px] uppercase tracking-widest text-[#3d5c48]"
-                          title="Força das altas contra as quedas, 0 a 100. Abaixo de 30 é sobrevendido, acima de 70 sobrecomprado."
-                        >
-                          rsi 14
-                        </span>
-                        <span className={`text-sm tabular-nums ${corDoRsi(f?.rsi_14)}`}>
-                          {n(f?.rsi_14, 1)}
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span
-                          className="text-[10px] uppercase tracking-widest text-[#3d5c48]"
-                          title="Quanto o ativo costuma andar por candle, em unidade de preço. É daqui que sai o stop-loss."
-                        >
-                          atr 14
-                        </span>
-                        <span className="text-sm tabular-nums text-[#d8f5df]">
-                          {preco(f?.atr_14)}
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span
-                          className="text-[10px] uppercase tracking-widest text-[#3d5c48]"
-                          title="Ordem das médias de 20, 50 e 200 períodos."
-                        >
-                          tendência
-                        </span>
-                        <span className={`text-sm ${t.cor}`}>{t.txt}</span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span
-                          className="text-[10px] uppercase tracking-widest text-[#3d5c48]"
-                          title="Volume do candle atual contra a média dos 20 anteriores. 1,0 é normal."
-                        >
-                          volume rel.
-                        </span>
-                        <span className="text-sm tabular-nums text-[#d8f5df]">
-                          {n(f?.volume_relativo)}×
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] uppercase tracking-widest text-[#3d5c48]">
-                          status
-                        </span>
-                        <span className="text-sm text-[#5c9d78]">{d.status}</span>
-                      </div>
-                    </div>
+        <section className="mt-px grid grid-cols-2 gap-px border border-t-0 border-vale-fio bg-vale-fio lg:grid-cols-4">
+          <Medida rotulo="operações" valor={String(operacoes.length)} nota={`${fechadas.length} fechada${fechadas.length === 1 ? "" : "s"}`} />
+          <Medida
+            rotulo="consultas ao cérebro"
+            valor={String(ciclos.filter((c) => c.llm_output).length)}
+            nota="cadência de 6 h"
+          />
+          <Medida
+            rotulo="vetos do risco"
+            valor={String(ciclos.filter((c) => c.risk_result?.aprovado === false).length)}
+            nota="entradas barradas"
+          />
+          <Medida
+            rotulo="coleta"
+            valor={ultimaColeta ? `${Math.round((Date.now() - new Date(ultimaColeta).getTime()) / 60000)} min` : "—"}
+            nota="desde a última gravação"
+          />
+        </section>
 
-                    {d.market_snapshot?.candles_em_andamento_descartados ? (
-                      <div className="mt-3 pt-3 border-t border-[#141f18] text-[10px] text-[#3d5c48]">
-                        {d.market_snapshot.candles_em_andamento_descartados} candle em andamento
-                        descartado antes de calcular — o volume parcial dele distorceria o volume
-                        relativo.
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-[10px] text-[#3d5c48]">
-          <span>
-            <span className="tabular-nums text-[#5c9d78]">{total}</span> ciclos gravados
-          </span>
-          <span>
-            ordens enviadas:{" "}
-            <span className={jaOperou ? "text-[#5c9d78]" : "text-[#eda100]"}>
-              {jaOperou ? "sim" : "nenhuma"}
+        {/* --------------------------------------------------- decisões ---- */}
+        <section className="mt-20">
+          <div className="mb-6 flex items-baseline justify-between gap-4">
+            <h2 className="text-[19px] font-medium tracking-[-0.02em]">
+              O que o sistema decidiu
+            </h2>
+            <span className="num text-[12px] text-vale-tinta-3">
+              mais recentes primeiro
             </span>
-          </span>
-          <span>cron de hora em hora · cérebro a cada 6h (quando ligado)</span>
-        </div>
+          </div>
+          <FluxoDeDecisoes ciclos={[...ciclos].reverse().slice(0, 40)} />
+        </section>
+
+        {/* ----------------------------------------------------- saídas ---- */}
+        <section className="mt-20 grid grid-cols-1 gap-px border border-vale-fio bg-vale-fio sm:grid-cols-2">
+          <Saida
+            href="/backtests"
+            titulo="Evidência"
+            texto="Cinco ativos replicados. Drawdown melhor que comprar-e-segurar em 5 de 5."
+          />
+          <Saida
+            href="/regimes"
+            titulo="Regimes"
+            texto="320 backtests em 64 janelas. Por que um seletor de regime não vale a pena."
+          />
+        </section>
+      </main>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------- peças ---- */
+
+function Pulso({ vivo }: { vivo: boolean }) {
+  return (
+    <span className="relative flex h-1.5 w-1.5">
+      {vivo && (
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-vale-alta opacity-60" />
+      )}
+      <span
+        className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+          vivo ? "bg-vale-alta" : "bg-vale-tinta-3"
+        }`}
+      />
+    </span>
+  );
+}
+
+function Conta({
+  par,
+  posicao,
+  preco,
+}: {
+  par: string;
+  posicao?: Posicao;
+  preco?: number;
+}) {
+  const posicionada = (posicao?.quantity ?? 0) > 0;
+  const entrada = posicao?.preco_entrada ?? null;
+  const stop = posicao?.stop_loss ?? null;
+  const aberto = posicionada && entrada && preco ? (preco / entrada - 1) * 100 : null;
+
+  return (
+    <div className="bg-vale-superficie p-6">
+      <div className="flex items-center justify-between">
+        <span className="num text-[15px] tracking-[-0.01em] text-vale-tinta">{par}</span>
+        <span
+          className={`num rounded-sm px-2 py-0.5 text-[10.5px] uppercase tracking-[0.08em] ${
+            posicionada
+              ? "bg-vale-alta/10 text-vale-alta"
+              : "bg-vale-elevado text-vale-tinta-3"
+          }`}
+        >
+          {posicionada ? "posicionada" : "de fora"}
+        </span>
       </div>
-    </main>
+
+      <div className="num mt-5 text-[26px] tracking-[-0.03em] text-vale-tinta">
+        {preco ? moeda(preco) : "—"}
+      </div>
+
+      {posicionada ? (
+        <div className="mt-5 grid grid-cols-3 gap-4">
+          <Campo rotulo="entrada" valor={entrada ? moeda(entrada) : "—"} />
+          <Campo rotulo="stop" valor={stop ? moeda(stop) : "—"} destaque="baixa" />
+          <Campo
+            rotulo="aberto"
+            valor={aberto != null ? `${aberto >= 0 ? "+" : ""}${aberto.toFixed(2)}%` : "—"}
+            destaque={aberto != null && aberto >= 0 ? "alta" : "baixa"}
+          />
+        </div>
+      ) : (
+        <div className="mt-5 grid grid-cols-3 gap-4">
+          <Campo
+            rotulo="caixa"
+            valor={posicao?.caixa != null ? moeda(posicao.caixa) : moeda(CAPITAL_POR_CONTA)}
+          />
+          <Campo rotulo="stop" valor="—" />
+          <Campo rotulo="aberto" valor="—" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Campo({
+  rotulo,
+  valor,
+  destaque,
+}: {
+  rotulo: string;
+  valor: string;
+  destaque?: "alta" | "baixa";
+}) {
+  const cor =
+    destaque === "alta"
+      ? "text-vale-alta"
+      : destaque === "baixa"
+        ? "text-vale-baixa"
+        : "text-vale-tinta-2";
+  return (
+    <div>
+      <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+        {rotulo}
+      </div>
+      <div className={`num mt-1 text-[13.5px] ${cor}`}>{valor}</div>
+    </div>
+  );
+}
+
+function Medida({
+  rotulo,
+  valor,
+  nota,
+}: {
+  rotulo: string;
+  valor: string;
+  nota: string;
+}) {
+  return (
+    <div className="bg-vale-superficie px-6 py-5">
+      <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+        {rotulo}
+      </div>
+      <div className="num mt-2 text-[22px] tracking-[-0.03em] text-vale-tinta">
+        {valor}
+      </div>
+      <div className="mt-0.5 text-[11.5px] text-vale-tinta-3">{nota}</div>
+    </div>
+  );
+}
+
+function Saida({
+  href,
+  titulo,
+  texto,
+}: {
+  href: string;
+  titulo: string;
+  texto: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group bg-vale-superficie p-7 transition-colors hover:bg-vale-elevado"
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[17px] font-medium tracking-[-0.02em] text-vale-tinta">
+          {titulo}
+        </span>
+        <ArrowUpRight
+          size={17}
+          weight="bold"
+          className="text-vale-tinta-3 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-vale-tinta"
+        />
+      </div>
+      <p className="mt-2 max-w-[42ch] text-[13.5px] leading-relaxed text-vale-tinta-2">
+        {texto}
+      </p>
+    </Link>
   );
 }

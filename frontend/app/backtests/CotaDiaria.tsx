@@ -13,23 +13,35 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
     pct >= 90 ? "critico" : pct >= 65 ? "atencao" : ("ok" as "ok" | "atencao" | "critico");
 
   const cor = {
-    ok: { barra: "bg-[#3ddc84]", texto: "text-[#3ddc84]", trilho: "bg-[#16301f]" },
-    atencao: { barra: "bg-[#eda100]", texto: "text-[#eda100]", trilho: "bg-[#2e2510]" },
-    critico: { barra: "bg-[#e07a5f]", texto: "text-[#e07a5f]", trilho: "bg-[#301a14]" },
+    ok: {
+      barra: "bg-vale-alta",
+      texto: "text-vale-alta",
+      trilho: "bg-vale-elevado",
+    },
+    atencao: {
+      barra: "bg-vale-tinta-2",
+      texto: "text-vale-tinta",
+      trilho: "bg-vale-elevado",
+    },
+    critico: {
+      barra: "bg-vale-baixa",
+      texto: "text-vale-baixa",
+      trilho: "bg-vale-elevado",
+    },
   }[faixa];
 
   const cabem = Math.floor(restantes / CONSULTAS_POR_RODADA);
   const reset = new Date(uso.inicioDaJanela.getTime() + 24 * 3600 * 1000);
 
   return (
-    <section className="border border-[#1c2b21] rounded overflow-hidden mb-10">
-      <div className="bg-[#0d1310] px-4 py-4">
+    <section className="border border-vale-fio rounded overflow-hidden mb-10">
+      <div className="bg-vale-superficie px-4 py-4">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
-          <span className="text-[10px] uppercase tracking-widest text-[#3d5c48]">
+          <span className="text-[10px] uppercase tracking-widest text-vale-tinta-3">
             cota diária do LLM
           </span>
-          <span className="text-[10px] text-[#2d4636]">{modelo ?? "—"}</span>
-          <span className={`ml-auto text-lg tabular-nums ${cor.texto}`}>
+          <span className="text-[10px] text-vale-tinta-3">{modelo ?? "—"}</span>
+          <span className={`ml-auto text-lg num ${cor.texto}`}>
             {pct.toFixed(1)}%
           </span>
         </div>
@@ -50,13 +62,13 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
         </div>
 
         <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
-          <span className="text-[#5c9d78]">
-            <span className="tabular-nums text-[#d8f5df]">{usadas}</span> de {limite} usadas
+          <span className="text-vale-tinta-2">
+            <span className="num text-vale-tinta">{usadas}</span> de {limite} usadas
           </span>
-          <span className="text-[#5c9d78]">
-            restam <span className="tabular-nums text-[#d8f5df]">{restantes}</span>
+          <span className="text-vale-tinta-2">
+            restam <span className="num text-vale-tinta">{restantes}</span>
           </span>
-          <span className={cabem > 0 ? "text-[#5c9d78]" : "text-[#e07a5f]"}>
+          <span className={cabem > 0 ? "text-vale-tinta-2" : "text-vale-baixa"}>
             {cabem > 0
               ? `cabe${cabem > 1 ? "m" : ""} ${cabem} rodada${cabem > 1 ? "s" : ""} de 91 dias`
               : "não cabe outra rodada de 91 dias hoje"}
@@ -64,19 +76,19 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
         </div>
 
         {rodadas.length > 0 && (
-          <ul className="mt-3 pt-3 border-t border-[#141f18] flex flex-col gap-1">
+          <ul className="mt-3 pt-3 border-t border-vale-fio flex flex-col gap-1">
             {rodadas.map((r) => (
-              <li key={r.quando + r.rotulo} className="flex gap-3 text-[10px] text-[#3d5c48]">
-                <span className="tabular-nums">
+              <li key={r.quando + r.rotulo} className="flex gap-3 text-[10px] text-vale-tinta-3">
+                <span className="num">
                   {new Date(r.quando).toLocaleTimeString("pt-BR", {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
                 </span>
-                <span className="text-[#5c9d78]">{r.rotulo}</span>
-                <span className="ml-auto tabular-nums">
+                <span className="text-vale-tinta-2">{r.rotulo}</span>
+                <span className="ml-auto num">
                   {r.chamadas}
-                  {r.estimado && <span className="text-[#eda100]"> ~</span>}
+                  {r.estimado && <span className="text-vale-tinta-2"> ~</span>}
                 </span>
               </li>
             ))}
@@ -84,14 +96,14 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
         )}
       </div>
 
-      <p className="bg-[#0a0e0c] px-4 py-2.5 text-[10px] text-[#2d4636] leading-relaxed border-t border-[#141f18]">
+      <p className="bg-vale-fundo px-4 py-2.5 text-[10px] text-vale-tinta-3 leading-relaxed border-t border-vale-fio">
         Estimativa a partir das rodadas gravadas — o contador de verdade é do Google e não é
         legível daqui. Chamadas feitas fora dos scripts (ou por rodadas que morreram antes de
         gravar) não aparecem, então trate como piso.
         {temEstimativa && (
           <>
             {" "}
-            Linhas com <span className="text-[#eda100]">~</span> vêm de rodadas antigas, anteriores
+            Linhas com <span className="text-vale-tinta-2">~</span> vêm de rodadas antigas, anteriores
             ao registro de chamadas reais: entram pelo total de consultas, que é um teto.
           </>
         )}{" "}

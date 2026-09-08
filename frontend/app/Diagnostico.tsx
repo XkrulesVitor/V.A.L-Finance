@@ -24,45 +24,45 @@ export function Diagnostico({
   const semVariaveis = (faltando?.length ?? 0) > 0;
 
   return (
-    <main className="min-h-screen bg-[#0a0e0c] text-[#d8f5df] font-mono px-6 py-10">
+    <main className="min-h-screen bg-vale-fundo text-vale-tinta  px-6 py-10">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-2 mb-4">
-          <span className="h-2 w-2 rounded-full bg-[#eda100]" />
-          <span className="text-xs uppercase tracking-widest text-[#eda100]">
+          <span className="h-2 w-2 rounded-full bg-vale-tinta-2" />
+          <span className="text-xs uppercase tracking-widest text-vale-tinta-2">
             {semVariaveis ? "falta configurar" : "não consegui ler o banco"}
           </span>
         </div>
 
-        <h1 className="text-xl mb-2 text-[#eafff0]">V.A.L Finance</h1>
-        <p className="text-sm text-[#5c9d78] mb-6 leading-relaxed">
+        <h1 className="text-xl mb-2 text-vale-tinta">V.A.L Finance</h1>
+        <p className="text-sm text-vale-tinta-2 mb-6 leading-relaxed">
           {semVariaveis
             ? "O site subiu, mas não recebeu as variáveis de ambiente do Supabase."
             : "As variáveis chegaram, mas a consulta ao Supabase falhou."}
         </p>
 
         {/* o que o servidor viu */}
-        <div className="border border-[#1c2b21] rounded p-4 mb-6">
-          <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-3">
+        <div className="border border-vale-fio rounded p-4 mb-6">
+          <div className="text-[10px] uppercase tracking-widest text-vale-tinta-3 mb-3">
             o que este build recebeu
           </div>
           <dl className="flex flex-col gap-2 text-sm">
             <div className="flex flex-wrap gap-x-3">
-              <dt className="text-[#3d5c48] w-40 shrink-0">URL</dt>
-              <dd className={config.urlOk ? "text-[#d8f5df]" : "text-[#e07a5f]"}>
+              <dt className="text-vale-tinta-3 w-40 shrink-0">URL</dt>
+              <dd className={config.urlOk ? "text-vale-tinta" : "text-vale-baixa"}>
                 {config.url || "— ausente —"}
                 {!config.urlOk && config.url && (
-                  <span className="block text-[11px] text-[#e07a5f] mt-1">
+                  <span className="block text-[11px] text-vale-baixa mt-1">
                     não parece uma URL. Esperado https://&lt;projeto&gt;.supabase.co
                   </span>
                 )}
               </dd>
             </div>
             <div className="flex flex-wrap gap-x-3">
-              <dt className="text-[#3d5c48] w-40 shrink-0">chave pública</dt>
-              <dd className={config.chaveOk ? "text-[#d8f5df]" : "text-[#e07a5f]"}>
+              <dt className="text-vale-tinta-3 w-40 shrink-0">chave pública</dt>
+              <dd className={config.chaveOk ? "text-vale-tinta" : "text-vale-baixa"}>
                 {config.chave || "— ausente —"}
                 {config.chaveSecreta && (
-                  <span className="block text-[11px] text-[#e07a5f] mt-1">
+                  <span className="block text-[11px] text-vale-baixa mt-1">
                     isto é uma chave SECRETA. Nunca use em NEXT_PUBLIC_ — ela ignora RLS e vai
                     para o navegador. Troque pela publicável e rotacione esta.
                   </span>
@@ -73,33 +73,33 @@ export function Diagnostico({
         </div>
 
         {erro && (
-          <div className="border border-[#3d1a14] bg-[#1a0d0a] rounded p-4 mb-6">
-            <div className="text-[10px] uppercase tracking-widest text-[#e07a5f] mb-2">
+          <div className="border border-vale-fio-forte bg-vale-elevado rounded p-4 mb-6">
+            <div className="text-[10px] uppercase tracking-widest text-vale-baixa mb-2">
               erro retornado
             </div>
-            <p className="text-[12px] text-[#d8f5df] leading-relaxed break-words">{erro}</p>
+            <p className="text-[12px] text-vale-tinta leading-relaxed break-words">{erro}</p>
           </div>
         )}
 
         {semVariaveis && (
-          <div className="border border-[#3d3115] bg-[#181307] rounded p-4 mb-6">
-            <div className="text-[10px] uppercase tracking-widest text-[#eda100] mb-3">
+          <div className="border border-vale-fio-forte bg-vale-elevado rounded p-4 mb-6">
+            <div className="text-[10px] uppercase tracking-widest text-vale-tinta-2 mb-3">
               já adicionou na Vercel e mesmo assim aparece isto?
             </div>
-            <p className="text-sm text-[#5c9d78] leading-relaxed">
-              Variáveis <span className="text-[#8fd4a8]">NEXT_PUBLIC_*</span> são embutidas no
-              código <strong className="text-[#d8f5df]">durante o build</strong>. Adicioná-las
+            <p className="text-sm text-vale-tinta-2 leading-relaxed">
+              Variáveis <span className="text-vale-tinta-2">NEXT_PUBLIC_*</span> são embutidas no
+              código <strong className="text-vale-tinta">durante o build</strong>. Adicioná-las
               depois não altera um deploy pronto. Solução:{" "}
-              <strong className="text-[#d8f5df]">Deployments → ⋯ → Redeploy</strong>, com{" "}
+              <strong className="text-vale-tinta">Deployments → ⋯ → Redeploy</strong>, com{" "}
               <em>Use existing Build Cache</em> desmarcado.
             </p>
             <ul className="mt-3 flex flex-col gap-1">
               {VARIAVEIS.map((v) => (
                 <li key={v} className="text-[12px] break-all">
-                  <span className={faltando?.includes(v) ? "text-[#e07a5f]" : "text-[#3ddc84]"}>
+                  <span className={faltando?.includes(v) ? "text-vale-baixa" : "text-vale-alta"}>
                     {faltando?.includes(v) ? "✗" : "✓"}
                   </span>{" "}
-                  <span className="text-[#5c9d78]">{v}</span>
+                  <span className="text-vale-tinta-2">{v}</span>
                 </li>
               ))}
             </ul>
@@ -107,26 +107,26 @@ export function Diagnostico({
         )}
 
         {!semVariaveis && (
-          <div className="border border-[#1c2b21] rounded p-4">
-            <div className="text-[10px] uppercase tracking-widest text-[#3d5c48] mb-3">
+          <div className="border border-vale-fio rounded p-4">
+            <div className="text-[10px] uppercase tracking-widest text-vale-tinta-3 mb-3">
               o que checar, em ordem
             </div>
-            <ol className="flex flex-col gap-2 text-sm text-[#5c9d78] leading-relaxed">
+            <ol className="flex flex-col gap-2 text-sm text-vale-tinta-2 leading-relaxed">
               <li>
-                <span className="text-[#d8f5df]">1.</span> A URL acima é mesmo a do seu projeto
+                <span className="text-vale-tinta">1.</span> A URL acima é mesmo a do seu projeto
                 Supabase? Um valor colado no campo errado é o erro mais comum.
               </li>
               <li>
-                <span className="text-[#d8f5df]">2.</span> A chave pública é a{" "}
-                <span className="text-[#8fd4a8]">sb_publishable_…</span> (ou a{" "}
-                <span className="text-[#8fd4a8]">anon</span> antiga) do{" "}
+                <span className="text-vale-tinta">2.</span> A chave pública é a{" "}
+                <span className="text-vale-tinta-2">sb_publishable_…</span> (ou a{" "}
+                <span className="text-vale-tinta-2">anon</span> antiga) do{" "}
                 <em>mesmo</em> projeto?
               </li>
               <li>
-                <span className="text-[#d8f5df]">3.</span> As tabelas têm{" "}
-                <span className="text-[#8fd4a8]">grant select</span> para{" "}
-                <span className="text-[#8fd4a8]">anon</span>? Rode o{" "}
-                <span className="text-[#8fd4a8]">supabase/schema.sql</span> inteiro — ele é
+                <span className="text-vale-tinta">3.</span> As tabelas têm{" "}
+                <span className="text-vale-tinta-2">grant select</span> para{" "}
+                <span className="text-vale-tinta-2">anon</span>? Rode o{" "}
+                <span className="text-vale-tinta-2">supabase/schema.sql</span> inteiro — ele é
                 idempotente.
               </li>
             </ol>

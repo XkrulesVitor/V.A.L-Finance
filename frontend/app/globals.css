@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+/*
+  V.A.L Finance — superfície de controle.
+
+  Regra que organiza a paleta inteira: COR SÓ APARECE ONDE HÁ DINHEIRO OU
+  ESTADO. Verde e vermelho não decoram nada — eles significam resultado
+  positivo, resultado negativo e sistema vivo. Todo o resto é grafite.
+
+  É como um terminal de mesa de operações funciona, e é o que impede a
+  página de virar enfeite: se algo está colorido, é porque tem consequência.
+*/
+
+@theme {
+  --color-vale-fundo:      #08090a;
+  --color-vale-superficie: #0d0e10;
+  --color-vale-elevado:    #131417;
+  --color-vale-fio:        #1c1e22;
+  --color-vale-fio-forte:  #2a2d33;
+
+  --color-vale-tinta:      #f2f4f5;
+  --color-vale-tinta-2:    #9aa0a8;
+  --color-vale-tinta-3:    #585e66;
+
+  /* Semânticos. Reservados. Nunca usados como enfeite. */
+  --color-vale-alta:       #22e07f;
+  --color-vale-baixa:      #ff5f52;
+
+  --font-sans: var(--fonte-sans);
+  --font-mono: var(--fonte-mono);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-vale-fundo);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-vale-fundo);
+  color: var(--color-vale-tinta);
+  font-family: var(--fonte-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* Todo dígito que possa ser comparado com outro fica em largura fixa.
+   Sem isto, colunas de números dançam e a leitura vira esforço. */
+.num {
+  font-family: var(--fonte-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: var(--color-vale-alta);
+  color: var(--color-vale-fundo);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-vale-alta);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
