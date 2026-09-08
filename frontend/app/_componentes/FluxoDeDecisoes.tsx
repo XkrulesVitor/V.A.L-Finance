@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CaretDown, Warning } from "@phosphor-icons/react";
+import { dataHora } from "@/lib/tempo";
 
 /*
  * O fluxo de decisões.
@@ -86,12 +87,7 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
             >
               <span className="num text-[11.5px] whitespace-nowrap text-vale-tinta-3">
                 <span className="sm:hidden">{c.symbol.replace("USDT", "")} · </span>
-                {new Date(c.created_at).toLocaleString("pt-BR", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {dataHora(c.created_at)}
               </span>
 
               <span className="num hidden text-[12.5px] text-vale-tinta-2 sm:block">

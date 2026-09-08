@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { diaMes, diaMesHora } from "@/lib/tempo";
 
 /*
  * Curva de capital do forward test.
@@ -171,7 +172,7 @@ export function CurvaDeCapital({ pontos, inicial, altura = 200 }: Props) {
 
         {/* eixo do tempo: só as pontas, o meio é ruído */}
         <text x={L} y={H - 8} fontSize="10.5" fill="var(--color-vale-tinta-3)">
-          {rotuloData(pontos[0].t)}
+          {diaMes(pontos[0].t)}
         </text>
         <text
           x={W - R}
@@ -180,7 +181,7 @@ export function CurvaDeCapital({ pontos, inicial, altura = 200 }: Props) {
           fill="var(--color-vale-tinta-3)"
           textAnchor="end"
         >
-          {rotuloData(pontos[pontos.length - 1].t)}
+          {diaMes(pontos[pontos.length - 1].t)}
         </text>
       </svg>
 
@@ -199,25 +200,9 @@ export function CurvaDeCapital({ pontos, inicial, altura = 200 }: Props) {
               maximumFractionDigits: 2,
             })}
           </div>
-          <div className="text-[10.5px] text-vale-tinta-3">{rotuloHora(p.t)}</div>
+          <div className="text-[10.5px] text-vale-tinta-3">{diaMesHora(p.t)}</div>
         </div>
       )}
     </div>
   );
-}
-
-function rotuloData(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-  });
-}
-
-function rotuloHora(iso: string) {
-  return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

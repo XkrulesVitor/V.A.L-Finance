@@ -1,4 +1,5 @@
 import { CONSULTAS_POR_RODADA, type UsoDaCota } from "@/lib/cota";
+import { dataHora, hora } from "@/lib/tempo";
 
 /**
  * Barra de consumo da cota diária do LLM.
@@ -80,10 +81,7 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
             {rodadas.map((r) => (
               <li key={r.quando + r.rotulo} className="flex gap-3 text-[10px] text-vale-tinta-3">
                 <span className="num">
-                  {new Date(r.quando).toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {hora(r.quando)}
                 </span>
                 <span className="text-vale-tinta-2">{r.rotulo}</span>
                 <span className="ml-auto num">
@@ -108,7 +106,7 @@ export function CotaDiaria({ uso, modelo }: { uso: UsoDaCota; modelo: string | n
           </>
         )}{" "}
         Reseta à meia-noite do Pacífico —{" "}
-        {reset.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{" "}
+        {dataHora(reset)}{" "}
         no seu horário.
       </p>
     </section>

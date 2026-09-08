@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import bruto from "@/lib/regimes.json";
 import { Cabecalho } from "@/app/_componentes/Cabecalho";
+import { dataLonga } from "@/lib/tempo";
 
 /*
  * Estudo de regimes — snapshot, não dado ao vivo.
@@ -201,11 +202,7 @@ export default function Regimes() {
 
         <p className="num mt-16 text-[11px] text-vale-tinta-3">
           snapshot gerado em{" "}
-          {new Date(dados.gerado_em).toLocaleDateString("pt-BR", {
-            day: "2-digit",
-            month: "long",
-            year: "numeric",
-          })}
+          {dataLonga(dados.gerado_em)}
         </p>
       </main>
     </>

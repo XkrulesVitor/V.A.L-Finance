@@ -6,6 +6,7 @@ import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 import { Cabecalho } from "@/app/_componentes/Cabecalho";
 import { CurvaDeCapital, type Ponto } from "@/app/_componentes/CurvaDeCapital";
 import { FluxoDeDecisoes } from "@/app/_componentes/FluxoDeDecisoes";
+import { diaMes } from "@/lib/tempo";
 
 export const metadata: Metadata = {
   title: "Operação",
@@ -167,10 +168,7 @@ export default async function Operacao() {
                   <span className="text-vale-fio-forte">/</span>
                   <span className="num">
                     desde{" "}
-                    {new Date(inicio).toLocaleDateString("pt-BR", {
-                      day: "2-digit",
-                      month: "short",
-                    })}
+                    {diaMes(inicio)}
                   </span>
                 </>
               )}

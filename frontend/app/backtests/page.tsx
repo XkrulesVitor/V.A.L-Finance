@@ -4,6 +4,7 @@ import { getSupabaseClient, variaveisFaltando } from "@/lib/supabase";
 import { Cabecalho } from "@/app/_componentes/Cabecalho";
 import { CotaDiaria } from "./CotaDiaria";
 import { calcularUso, type RunDeCota } from "@/lib/cota";
+import { dataCurta } from "@/lib/tempo";
 
 export const metadata: Metadata = {
   title: "Evidência",
@@ -178,7 +179,7 @@ export default async function Evidencia() {
                     {symbol}
                   </h2>
                   <span className="num text-[11.5px] text-vale-tinta-3">
-                    {new Date(inicio).toLocaleDateString("pt-BR")} ·{" "}
+                    {dataCurta(inicio)} ·{" "}
                     {dias} dias
                   </span>
                 </div>
