@@ -74,3 +74,54 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------------------ marca
+
+   A animação da marca é CSS puro, e isso é decisão, não preguiça: duas
+   versões com `motion/react` quebraram a hidratação em produção. Sem
+   JavaScript no caminho, não existe nada mexendo no DOM enquanto o React
+   hidrata — a classe inteira de erro deixa de existir, e o SVG aparece
+   inteiro mesmo com JavaScript desligado.
+
+   A ordem conta a história: o preço traça, o stop entra, o vértice pisca
+   uma vez no ponto de contato. Uma vez só. Laço infinito em logo é ruído.
+
+   A regra global de `prefers-reduced-motion` neutraliza tudo isto sem
+   precisar de hook. */
+
+.marca-traco {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.marca-anima .marca-traco {
+  animation: marca-desenha 0.75s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.marca-anima .marca-stop {
+  transform-origin: 3px 22px;   /* cresce da esquerda, como o preço anda */
+  animation: marca-estende 0.45s ease-out 0.5s both;
+}
+
+.marca-ponto {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.marca-anima .marca-ponto {
+  animation: marca-toca 0.5s ease-out 0.72s both;
+}
+
+@keyframes marca-desenha {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes marca-estende {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 0.38; }
+}
+
+@keyframes marca-toca {
+  0%   { transform: scale(0);   opacity: 0; }
+  60%  { transform: scale(1.5); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
