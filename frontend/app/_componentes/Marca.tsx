@@ -32,6 +32,23 @@
  * animação de `stroke-dashoffset`.
  */
 
+/*
+ * O traço. Duas curvas que descem até um vértice macio sobre a linha do
+ * stop (y = 22) e sobem de novo.
+ *
+ * A primeira versão eram duas retas com vértice em quina, e ficava
+ * "quadradona". Foram comparadas oito alternativas no tamanho real do
+ * cabeçalho (24px) e ampliadas. As curvas que abriam as pontas até quase a
+ * horizontal viravam asa ou Y a 24px; a taça funda virava U; a versão com o
+ * braço direito mais alto lia como "✓", ambíguo demais num sistema que
+ * decide comprar e vender. Esta é a que curva sem deixar de ser V.
+ *
+ * O fundo arredondado continua tocando o stop: a queda desacelera e para ali,
+ * que é o que o sistema faz.
+ */
+export const TRACO =
+  "M5 5 C7.5 12 11 19.5 13.6 21.4 Q15 22.5 16.4 21.4 C19 19.5 22.5 12 27 5";
+
 type Props = {
   tamanho?: number;
   animar?: boolean;
@@ -70,10 +87,10 @@ export function Marca({ tamanho = 28, animar = true, className = "" }: Props) {
       {/* a trajetória: cai até o stop e reverte */}
       <path
         className="marca-traco"
-        d="M5 6 L14.5 22 L27 5"
+        d={TRACO}
         pathLength="1"
         stroke="currentColor"
-        strokeWidth="2.15"
+        strokeWidth="2.3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -82,7 +99,7 @@ export function Marca({ tamanho = 28, animar = true, className = "" }: Props) {
           lugar onde algo aconteceu */}
       <circle
         className="marca-ponto"
-        cx="14.5"
+        cx="15"
         cy="22"
         r="2.4"
         fill="var(--color-vale-alta)"

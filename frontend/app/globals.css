@@ -110,9 +110,13 @@ body {
   animation: marca-toca 0.5s ease-out 0.72s both;
 }
 
+/* O opacity no primeiro quadro esconde a tampa redonda do traço: com
+   dasharray 1 e offset 1 o traço está "vazio", mas a ponta arredondada ainda
+   desenha um pontinho na origem durante um instante. */
 @keyframes marca-desenha {
-  from { stroke-dashoffset: 1; }
-  to   { stroke-dashoffset: 0; }
+  0%   { stroke-dashoffset: 1; opacity: 0; }
+  2%   { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
 }
 
 @keyframes marca-estende {
