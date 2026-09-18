@@ -870,6 +870,62 @@ E há um argumento mais forte do que o custo: **o testnet daria dado pior.** O l
 
 A segunda precisa de credencial, e não precisa ser contínua: é um punhado de execuções manuais para conferir `LOT_SIZE`/`stepSize`, `minNotional` e rejeições. Isso roda no PC do dono, onde não há bloqueio geográfico. Host pago só entra se um dia a operação com dinheiro real exigir presença permanente fora dos EUA.
 
+### Votação entre estratégias e tendência diária — testado antes de construir (18/09/2026)
+
+O dono propôs trocar o motor por **várias estratégias votando** (compra quando uma % delas dá gatilho, vende quando uma % dá gatilho de venda), com o LLM só validando. Antes de construir, a ideia foi medida. Tudo em código versionado, sem chamada de LLM, com os votantes, limiares e variantes **fixados antes da primeira execução** e todos os resultados reportados.
+
+**Conjunto:** 8 ativos (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, LINK) × 8 janelas de 91 dias terminando em 2026-09-01 = 64 janelas. Rótulo de regime pelo próprio ativo. É uma reconstrução: o estudo de regimes de 01/09 não registrou ativos nem datas, então os números não são comparáveis um a um com aquele.
+
+#### Estudo 1 — votação entre 7 regras de 1h (`backtest/estudo_votacao.py`)
+
+Votantes: cruzamento EMA20/50, preço > EMA200, MACD, RSI 30/70, Donchian 20/10, Bollinger, momento de 7 dias. Entra com ≥ k de 7 comprados, sai com ≥ k de 7 fora, k ∈ {4, 5, 6}; variantes pura, com stop 4×/alvo 6× ATR, e com exigência de sinal novo depois de stop.
+
+| | Retorno médio | Drawdown | Trades/janela |
+|---|---|---|---|
+| Comprar e segurar | 13,99% | −32,54% | 1 |
+| Votação k=4 (maioria simples) | −1,70% | −24,16% | **61,6** |
+| Votação k=5 | 10,03% | −20,61% | 14,1 |
+| Votação k=6 + stop | −0,18% | −8,21% | 3,4 |
+
+**Maioria simples vira rodízio** — é o mesmo modo de falha do forward test no ETH. Limiar alto reduz drawdown, mas só porque fica fora do mercado.
+
+**Os votantes não são independentes.** Os de tendência concordam entre si em 70–84% dos candles (preço>EMA200 × momento 7d: 84,3%). Sete votos são, na prática, dois ou três contados várias vezes.
+
+#### O benchmark que decide: comprar e segurar com a MESMA exposição
+
+Estratégia que fica pouco tempo comprada tem drawdown menor por definição — manter 30% do capital no ativo também tem. A pergunta certa é se ela reduz o risco **melhor do que segurar menos** (`backtest/benchmark_exposicao.py`). Duas versões: fração **fixa** por configuração (justa) e fração **por janela** (usa o drawdown realizado, favorece o b&h).
+
+**Nas 16 configurações do estudo 1, só uma fica positiva, e por pouco** (k=5 pura, +1,75 pt na fração fixa, negativa na por janela). Todas as demais perdem para simplesmente segurar menos, de −0,7 a −24,6 pts.
+
+**Veredito: a votação entre regras técnicas de 1h não deve ser construída.**
+
+#### Estudo 2 — ensemble de tendência DIÁRIA (`backtest/estudo_tendencia_diaria.py`)
+
+O único ensemble com precedente na literatura para cripto (Zarattini, Pagani & Barbon 2025; Detzel et al. 2021; Liu & Tsyvinski 2021): várias versões da **mesma** ideia — preço diário acima da média de L dias, L ∈ {10, 20, 30, 50, 70, 100} —, sinal só no fechamento do dia, sem take-profit, saída pela reversão do sinal. Duas configurações: binária (entra ≥ 4/6, sai ≤ 2/6) e fracionária (exposição = votos/6). **O design veio da literatura, não destes dados.**
+
+| Contra b&h de mesma exposição, fração fixa | 2024–2026 | **2022–2024 (fora da amostra)** |
+|---|---|---|
+| Tendência diária, binária | +4,58 pts | **−1,84 pts** |
+| Tendência diária, fracionária | +5,08 pts | **−2,05 pts** |
+
+| Tendência binária | 2024–2026 | 2022–2024 |
+|---|---|---|
+| Retorno médio (b&h) | 13,00% (13,99%) | 9,34% (15,07%) |
+| Drawdown médio (b&h) | −20,95% (−32,54%) | −23,51% (−30,43%) |
+| Trades por janela | 3,2 | 3,2 |
+
+**A vantagem da amostra não se repetiu fora dela.** O que se repete nos dois períodos é o perfil: drawdown menor com pouquíssimas operações, pagando parte da alta. É um **freio de risco barato**, não uma fonte de alfa.
+
+Conferência do simulador fracionário: com exposição fixa em 100% ele difere do b&h do motor em até 3–4 pts, e a causa foi verificada — o motor só compra na abertura do segundo candle; contra um b&h que entra no mesmo candle a diferença cai para 0,02 pt.
+
+#### O que isso significa para o projeto
+
+Nenhuma regra técnica testada — de 1h ou diária, isolada ou em votação — bateu de forma consistente o comprar-e-segurar com a mesma exposição. Isso é coerente com a literatura (ver `materiais didáticos/base-de-conhecimento-investimentos.md`): em cripto, o ganho robusto de tendência é **reduzir drawdown**, não bater o mercado.
+
+A pergunta do projeto passa de "como bater o mercado" para "**quanto do movimento de alta dá para capturar com quanto de drawdown, com que giro**". Essa pergunta tem resposta mensurável, e o ensemble diário responde melhor do que tudo o que foi testado em 1h.
+
+Registro de multiplicidade: foram testadas 18 configurações neste bloco (16 + 2). Nenhuma foi escolhida olhando o resultado; o estudo 2 foi desenhado a partir da literatura depois do estudo 1, e isso fica registrado aqui.
+
 ## 12. Considerações regulatórias e de risco
 
 **CVM (Brasil):** existe uma distinção entre o robô que o próprio investidor configura e opera só pra si (informalmente chamado de robô "White Box"), que não exige registro na CVM porque quem decide é o dono do dinheiro através do sistema que ele mesmo programou, e o robô que presta consultoria ou gestão pra terceiros, que exige. Este projeto, sendo de uso pessoal, cai no primeiro caso. Se um dia a ideia for oferecer isso pra outras pessoas, essa premissa muda e precisa de orientação jurídica de verdade — nada aqui é aconselhamento jurídico.
