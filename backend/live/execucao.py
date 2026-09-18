@@ -112,13 +112,27 @@ def vender(
     # O resultado da operacao so e conhecido na saida, e e o que responde
     # "essa entrada valeu a pena?". Guardar aqui evita ter que reconstruir
     # depois cruzando duas linhas de `decisions`.
+    #
+    # O custo da entrada INCLUI a taxa de compra. A primeira versao usava
+    # `quantidade * entrada`, que e so o preco pago pelos ativos -- e deixava
+    # de fora a taxa. Resultado: toda operacao aparecia ~0,1% melhor do que
+    # foi, e o motor de backtest (que usa o caixa inteiro gasto na entrada)
+    # divergia do forward test justamente no numero que os compara. Achado
+    # porque a pagina Carteira mostrou realizado de -33,12 com patrimonio em
+    # -90,82 e nenhuma posicao aberta: a diferenca era a soma das 6 taxas.
+    #
+    # A compra e sempre com o caixa inteiro (`comprar`), entao
+    # quantidade = caixa * (1 - taxa) / preco, e o caixa gasto e
+    # quantidade * preco / (1 - taxa). Exato, sem precisar gravar o custo.
     entrada = conta.preco_entrada
     resultado = None
     resultado_pct = None
     if entrada:
-        custo_da_entrada = conta.quantidade * entrada
+        custo_da_entrada = conta.quantidade * entrada / (1.0 - taxa_por_operacao)
         resultado = caixa - custo_da_entrada
-        resultado_pct = (preco / entrada - 1.0) * 100.0
+        # liquido de taxas, como o resultado -- o percentual bruto do preco
+        # contava uma historia melhor do que a do caixa
+        resultado_pct = resultado / custo_da_entrada * 100.0
 
     nova = replace(
         conta,

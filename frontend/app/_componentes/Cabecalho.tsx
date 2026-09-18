@@ -9,7 +9,8 @@ import { Assinatura } from "./Marca";
  */
 
 const DESTINOS = [
-  { href: "/", rotulo: "Operação" },
+  { href: "/", rotulo: "Carteira" },
+  { href: "/motor", rotulo: "Motor" },
   { href: "/backtests", rotulo: "Evidência" },
   { href: "/regimes", rotulo: "Regimes" },
 ];

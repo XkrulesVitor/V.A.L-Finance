@@ -28,3 +28,4 @@ backend/backtest/resultados/
 # Artefatos de build do Next
 frontend/tsconfig.tsbuildinfo
 frontend/.next/
+.wf-*.js

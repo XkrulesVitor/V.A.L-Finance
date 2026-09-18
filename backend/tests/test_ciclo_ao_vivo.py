@@ -226,6 +226,30 @@ def test_preenchimento_bate_com_o_motor_de_backtest():
     )
 
 
+def test_resultado_da_operacao_bate_com_o_motor():
+    # Regressao. O resultado gravado ignorava a taxa de compra, e a Carteira
+    # mostrou realizado de -33,12 com patrimonio em -90,82 e nada aberto:
+    # a diferenca era a soma das 6 taxas de entrada. O motor usa como custo
+    # o caixa inteiro gasto na entrada (engine.py: custo_da_entrada = caixa).
+    caixa_inicial, p_entrada, p_saida = 10_000.0, 80_000.0, 76_000.0
+    qtd = (caixa_inicial - caixa_inicial * TAXA_PADRAO) / p_entrada
+    bruto = qtd * p_saida
+    resultado_motor = (bruto - bruto * TAXA_PADRAO) - caixa_inicial
+
+    conta = ContaSimulada(par="BTCUSDT", caixa=caixa_inicial)
+    conta, _ = comprar(conta, p_entrada, 70_000.0, 90_000.0)
+    conta, ordem = vender(conta, p_saida, "teste")
+    assert abs(ordem["resultado"] - resultado_motor) < 1e-6, (
+        f"resultado ao vivo {ordem['resultado']:.4f} != motor {resultado_motor:.4f}"
+    )
+    assert abs(ordem["resultado"] - (conta.caixa - caixa_inicial)) < 1e-6, (
+        "resultado tem que ser exatamente o que o caixa andou"
+    )
+    assert abs(ordem["resultado_pct"] - resultado_motor / caixa_inicial * 100) < 1e-9, (
+        "percentual tem que ser liquido de taxas, como o resultado"
+    )
+
+
 def test_compra_usa_todo_o_caixa():
     # O motor entra com o caixa inteiro; usar `tamanho_posicao` do Risk
     # Engine aqui produziria uma curva de capital incomparavel.
