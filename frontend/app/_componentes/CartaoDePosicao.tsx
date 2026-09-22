@@ -1,5 +1,5 @@
-import type { Posicao } from "@/lib/carteira";
-import { sinal, usd } from "@/lib/carteira";
+import type { Leitura, Posicao } from "@/lib/carteira";
+import { ENTRA_COM, PRAZOS, SAI_COM, sinal, usd } from "@/lib/carteira";
 import { diaMes } from "@/lib/tempo";
 
 /*
@@ -12,6 +12,12 @@ import { diaMes } from "@/lib/tempo";
  * 0,4% de ser vendido"; o trilho diz.
  *
  * Fora de posição, o cartão fica curto de propósito: só o preço e o caixa.
+ *
+ * Desde 22/09 a regra é de tendência e não tem alvo — a saída é a própria
+ * tendência virar. O trilho stop→alvo deixa de fazer sentido, e no lugar
+ * dele entra a Força: os seis prazos que a regra consulta, acesos quando o
+ * preço está acima da média daquele prazo. É a mesma pergunta ("quão perto
+ * estou de sair?") respondida com a régua que decide de verdade.
  */
 
 export function CartaoDePosicao({ p }: { p: Posicao }) {
@@ -20,9 +26,22 @@ export function CartaoDePosicao({ p }: { p: Posicao }) {
   if (!p.aberta) {
     return (
       <div className="flex items-center justify-between gap-4 bg-vale-superficie px-6 py-5">
-        <div className="flex items-baseline gap-3">
-          <span className="text-[16px] font-medium tracking-[-0.01em] text-vale-tinta">{nome}</span>
-          <span className="text-[12px] text-vale-tinta-3">em caixa</span>
+        <div>
+          <div className="flex items-baseline gap-3">
+            <span className="text-[16px] font-medium tracking-[-0.01em] text-vale-tinta">{nome}</span>
+            <span className="text-[12px] text-vale-tinta-3">em caixa</span>
+          </div>
+          {p.tendencia?.votos != null && (
+            <div className="mt-2 flex items-center gap-2.5">
+              <Pontos leitura={p.tendencia} />
+              <span className="num text-[11.5px] text-vale-tinta-3">
+                {p.tendencia.votos} de 6 ·{" "}
+                {p.tendencia.podeEntrar === false && p.tendencia.votos >= ENTRA_COM
+                  ? "espera um dia fechar depois da proteção"
+                  : `entra com ${ENTRA_COM}`}
+              </span>
+            </div>
+          )}
         </div>
         <div className="text-right">
           <div className="num text-[15px] text-vale-tinta-2">{usd(p.caixa)}</div>
@@ -72,6 +91,12 @@ export function CartaoDePosicao({ p }: { p: Posicao }) {
 
       {p.stop !== null && p.alvo !== null && p.precoEntrada !== null && p.preco !== null && (
         <Trilho stop={p.stop} alvo={p.alvo} entrada={p.precoEntrada} preco={p.preco} />
+      )}
+      {p.alvo === null && p.tendencia?.votos != null && (
+        <Forca leitura={p.tendencia} stop={p.stop} preco={p.preco} />
+      )}
+      {p.explicacao && (
+        <p className="mt-5 max-w-[60ch] text-[12.5px] leading-relaxed text-vale-tinta-3">{p.explicacao}</p>
       )}
     </div>
   );
@@ -141,5 +166,62 @@ function Trilho({
         </span>
       </div>
     </div>
+  );
+}
+
+function Forca({ leitura, stop, preco }: { leitura: Leitura; stop: number | null; preco: number | null }) {
+  const v = leitura.votos ?? 0;
+  const distStop = stop !== null && preco !== null ? ((preco - stop) / preco) * 100 : null;
+
+  return (
+    <div className="mt-7">
+      <div className="flex items-baseline justify-between gap-4 text-[11.5px]">
+        <span className="text-vale-tinta-2">
+          tendência <span className="num text-vale-tinta">{v} de 6</span> em alta
+        </span>
+        <span className="num text-vale-tinta-3">sai com {SAI_COM} ou menos</span>
+      </div>
+
+      <div className="mt-2.5 grid grid-cols-6 gap-1" role="img"
+        aria-label={`${v} de 6 prazos com o preço acima da média. A posição sai quando restarem ${SAI_COM} ou menos.`}>
+        {PRAZOS.map((n, i) => {
+          const acima = leitura.prazos[String(n)]?.acima ?? false;
+          // a linha de saída: os segmentos até SAI_COM ficam marcados por baixo
+          const zonaDeSaida = i < SAI_COM;
+          return (
+            <div key={n}>
+              <div className={`h-[5px] rounded-full ${acima ? "bg-vale-alta" : "bg-vale-elevado"}`} />
+              <div className={`num mt-1.5 text-center text-[10.5px] ${zonaDeSaida ? "text-vale-tinta-3" : "text-vale-tinta-3/70"}`}>
+                {n}d
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {distStop !== null && stop !== null && distStop >= 0 && (
+        <div className="num mt-3 text-[11px] text-vale-tinta-3">
+          proteção em <span className="text-vale-tinta-2">{usd(stop)}</span> · {distStop.toFixed(1)}% abaixo
+        </div>
+      )}
+      {distStop !== null && stop !== null && distStop < 0 && (
+        // O stop só é conferido em fechamentos de 1h (é o que o estudo mede),
+        // então o preço ao vivo pode passar dele antes da venda.
+        <div className="num mt-3 text-[11px] text-vale-baixa">
+          preço abaixo da proteção de {usd(stop)} · a venda sai no próximo fechamento de hora abaixo dela
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Pontos({ leitura }: { leitura: Leitura }) {
+  return (
+    <span className="flex gap-[3px]" aria-hidden="true">
+      {PRAZOS.map((n) => (
+        <span key={n}
+          className={`h-[5px] w-[5px] rounded-full ${leitura.prazos[String(n)]?.acima ? "bg-vale-alta" : "bg-vale-elevado"}`} />
+      ))}
+    </span>
   );
 }

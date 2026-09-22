@@ -57,6 +57,7 @@ violacao de unicidade, outra execucao ja pegou este candle -- e a
 resposta certa e sair sem fazer nada.
 """
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -74,6 +75,18 @@ CAPITAL_INICIAL_PADRAO = 10_000.0
 COLUNAS_DA_CONTA = (
     "asset", "quantity", "caixa", "preco_entrada", "stop_loss", "take_profit",
 )
+
+# Status da linha de `decisions` entre a reivindicacao e a conclusao. Uma
+# linha que fica nele e uma reivindicacao orfa: o processo morreu (ou deu
+# erro) depois de reivindicar e antes de concluir.
+STATUS_RESERVADO = "processando"
+
+# `concluir_decisao` tenta de novo antes de desistir. A conta ja foi gravada
+# quando ela roda, e perder a linha da decisao apaga a operacao do historico
+# (e, na regra de tendencia, a trava de reentrada depois de um stop). Um
+# erro transitorio do Supabase e o caso realista; tres tentativas o cobrem.
+TENTATIVAS_DE_CONCLUSAO = 3
+_esperar = time.sleep  # trocado nos testes
 
 # Marcas com que o PostgREST relata violacao de indice unico.
 MARCAS_DE_DUPLICADA = ("23505", "duplicate key", "already exists")
@@ -225,7 +238,7 @@ def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
     registro = {
         "symbol": par,
         "candle_fechamento_em": fechamento_em,
-        "status": "processando",
+        "status": STATUS_RESERVADO,
     }
     try:
         resposta = supabase.table(TABELA_DECISOES).insert(registro).execute()
@@ -249,13 +262,24 @@ def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
 
 
 def concluir_decisao(supabase, id_decisao: str, campos: dict) -> None:
-    """Preenche a linha reivindicada com o resultado do ciclo."""
-    try:
-        supabase.table(TABELA_DECISOES).update(campos).eq("id", id_decisao).execute()
-    except Exception as erro:  # noqa: BLE001
-        raise ErroDeEstado(
-            f"falha ao concluir a decisao {id_decisao}: {erro}"
-        ) from erro
+    """
+    Preenche a linha reivindicada com o resultado do ciclo.
+
+    Tenta de novo antes de desistir (ver TENTATIVAS_DE_CONCLUSAO): o update
+    e idempotente -- mesma linha, mesmos campos --, entao repetir nao tem
+    efeito colateral.
+    """
+    for tentativa in range(1, TENTATIVAS_DE_CONCLUSAO + 1):
+        try:
+            supabase.table(TABELA_DECISOES).update(campos).eq("id", id_decisao).execute()
+            return
+        except Exception as erro:  # noqa: BLE001
+            if tentativa == TENTATIVAS_DE_CONCLUSAO:
+                raise ErroDeEstado(
+                    f"falha ao concluir a decisao {id_decisao} depois de "
+                    f"{tentativa} tentativas: {erro}"
+                ) from erro
+            _esperar(tentativa)
 
 
 def ultimo_candle_processado(supabase, par: str) -> int | None:
@@ -280,6 +304,12 @@ def ultimo_candle_processado(supabase, par: str) -> int | None:
             .select("candle_fechamento_em")
             .eq("symbol", par)
             .not_.is_("candle_fechamento_em", "null")
+            # Reivindicacao orfa nao conta como processada. Se contasse, o
+            # candle dela avancaria o ponto de partida da varredura do stop,
+            # e os fechamentos do buraco anterior nunca seriam conferidos --
+            # o revisor reproduziu um stop furado virando HOLD assim.
+            # Reconferir fechamentos ja vistos e inofensivo.
+            .neq("status", STATUS_RESERVADO)
             .order("candle_fechamento_em", desc=True)
             .limit(1)
             .execute()
@@ -349,6 +379,49 @@ def ultima_consulta_ms(supabase, par: str) -> int | None:
     return int(
         datetime.fromisoformat(criada.replace("Z", "+00:00")).timestamp() * 1000
     )
+
+
+def ultima_saida_ms(supabase, par: str, motivo: str) -> int | None:
+    """
+    Quando este par saiu da posicao pela ultima vez POR `motivo`.
+
+    Existe para a regra de tendencia nao recomprar na hora seguinte a um
+    stop de catastrofe usando o mesmo voto que mandou comprar
+    (`estrategia.tendencia_diaria.voto_vale_para_entrada`).
+
+    O filtro por motivo nao e detalhe. Sem ele, qualquer venda travava a
+    reentrada -- inclusive as da estrategia hibrida, que nao tem nada a ver
+    com a regra: uma saida da hibrida no mesmo dia UTC da entrada no ar
+    seguraria a primeira compra da regra ate o dia seguinte, e o ao vivo
+    deixaria de fazer o que o backtest faz. Para a saida normal da propria
+    regra a trava nao muda nada (sair com 2 e voltar com 4 ja exige um dia
+    novo), entao so o stop precisa ser consultado.
+
+    Usa o `gatilho_em` gravado na venda -- o fechamento que furou o stop --
+    e cai no candle reivindicado se ele faltar.
+    """
+    try:
+        resposta = (
+            supabase.table(TABELA_DECISOES)
+            .select("candle_fechamento_em,order_result")
+            .eq("symbol", par)
+            .eq("status", "executed")
+            .eq("order_result->>lado", "SELL")
+            .eq("order_result->>motivo", motivo)
+            .order("candle_fechamento_em", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as erro:  # noqa: BLE001
+        raise ErroDeEstado(f"falha ao ler a ultima saida de {par}: {erro}") from erro
+
+    for linha in resposta.data or []:
+        ordem = linha.get("order_result") or {}
+        if ordem.get("lado") != "SELL" or ordem.get("motivo") != motivo:
+            continue
+        quando = ordem.get("gatilho_em") or linha.get("candle_fechamento_em")
+        return int(quando) if quando is not None else None
+    return None
 
 
 def _exigir_caixa(valor, par: str) -> float:

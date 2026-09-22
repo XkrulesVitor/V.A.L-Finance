@@ -21,12 +21,38 @@ import { getSupabaseClient } from "@/lib/supabase";
 
 export const CAPITAL_POR_CONTA = 10_000;
 
+/**
+ * Dia em que o motor trocou a estratégia híbrida (LLM decide) pela regra de
+ * tendência diária (LLM só explica). Ver ARCHITECTURE.md. As contas não
+ * foram zeradas: o histórico antes desta data é da estratégia antiga.
+ */
+export const TENDENCIA_DESDE = "2026-09-22";
+export const PRAZOS = [10, 20, 30, 50, 70, 100] as const;
+export const ENTRA_COM = 4;
+export const SAI_COM = 2;
+
+/** O que a regra de tendência viu no último dia fechado. */
+export type Leitura = {
+  votos: number | null;
+  dia: string | null;
+  prazos: Record<string, { media: number; acima: boolean }>;
+  /**
+   * `false` depois de um stop de catástrofe, até fechar um dia novo: a
+   * regra não entra nem com votos suficientes. Ausente em leituras antigas.
+   */
+  podeEntrar: boolean | null;
+  em: string;
+};
+
 export type Decisao = {
   id: string;
   created_at: string;
   symbol: string;
   status: string;
   candle_fechamento_em: number | null;
+  /** Só nas decisões da regra de tendência: quantos prazos em alta. */
+  votos?: number | null;
+  estrategia?: string | null;
   market_snapshot: {
     preco_atual: number;
     conta?: { caixa: number; quantidade: number };
@@ -35,8 +61,8 @@ export type Decisao = {
   llm_output: { direction: string; horizon: string; confidence: number; reasoning: string } | null;
   risk_result: {
     acao_final: string;
-    aprovado: boolean;
-    override_do_llm: boolean;
+    aprovado?: boolean;
+    override_do_llm?: boolean;
     motivo: string;
     direcao_do_llm?: string | null;
   } | null;
@@ -51,6 +77,10 @@ export type Decisao = {
     resultado?: number | null;
     resultado_pct?: number | null;
     motivo?: string | null;
+    explicacao?: string | null;
+    preco_entrada?: number | null;
+    /** Onde o backtest executaria (regra de tendência). Ver live/ciclo_tendencia.py. */
+    referencia_backtest?: { em: number; preco: number | null; deslize_pct: number | null } | null;
   } | null;
 };
 
@@ -72,6 +102,7 @@ export type Operacao = {
   resultado: number;
   resultadoPct: number;
   motivo: string;
+  explicacao: string | null;
 };
 
 export type Posicao = {
@@ -88,18 +119,45 @@ export type Posicao = {
   stop: number | null;
   alvo: number | null;
   abertaEm: string | null;
+  tendencia: Leitura | null;
+  /** A frase do LLM sobre a compra, quando houver. */
+  explicacao: string | null;
 };
+
+/*
+ * O PostgREST do Supabase devolve no máximo 1000 linhas por consulta (Max
+ * rows, padrão do projeto). Com ciclos de hora em hora isso chega em
+ * semanas, e uma consulta crescente sem paginação passaria a devolver as
+ * 1000 linhas MAIS ANTIGAS: a página congelaria no passado sem erro
+ * nenhum. Então a leitura é paginada até vir uma página incompleta.
+ */
+const PAGINA = 1000;
+
+async function todosOsCiclos(sb: ReturnType<typeof getSupabaseClient>): Promise<Decisao[]> {
+  const saida: Decisao[] = [];
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await sb
+      .from("decisions")
+      .select(
+        // `votos` e `estrategia` saem de dentro de `features` sem trazer o
+        // resto: nas linhas da estratégia antiga `features` tem ~20
+        // indicadores, e a página não usa nenhum.
+        "id, created_at, symbol, status, candle_fechamento_em, votos:features->votos, estrategia:features->>estrategia, market_snapshot, llm_output, risk_result, order_result"
+      )
+      .not("candle_fechamento_em", "is", null)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }) // desempate estável entre páginas
+      .range(inicio, inicio + PAGINA - 1);
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    saida.push(...((data ?? []) as Decisao[]));
+    if (!data || data.length < PAGINA) return saida;
+  }
+}
 
 export async function carregar() {
   const sb = getSupabaseClient();
-  const [ciclos, contas, coleta] = await Promise.all([
-    sb
-      .from("decisions")
-      .select(
-        "id, created_at, symbol, status, candle_fechamento_em, market_snapshot, llm_output, risk_result, order_result"
-      )
-      .not("candle_fechamento_em", "is", null)
-      .order("created_at", { ascending: true }),
+  const [ciclos, contas, coleta, leituras] = await Promise.all([
+    todosOsCiclos(sb),
     sb.from("portfolio").select("asset, quantity, caixa, preco_entrada, stop_loss, take_profit"),
     sb
       .from("decisions")
@@ -107,15 +165,36 @@ export async function carregar() {
       .is("candle_fechamento_em", null)
       .order("created_at", { ascending: false })
       .limit(1),
+    sb
+      .from("decisions")
+      .select("symbol, created_at, features")
+      .eq("features->>estrategia", "tendencia_diaria")
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
 
-  if (ciclos.error) throw new Error(`Supabase: ${ciclos.error.message}`);
   if (contas.error) throw new Error(`Supabase: ${contas.error.message}`);
 
+  // A leitura mais recente de cada par. Falhar aqui não derruba a página:
+  // sem ela o cartão só não mostra a força da tendência.
+  const tendencia = new Map<string, Leitura>();
+  type LinhaDeLeitura = { symbol: string; created_at: string; features: Record<string, unknown> | null };
+  for (const l of (leituras.data ?? []) as LinhaDeLeitura[]) {
+    if (tendencia.has(l.symbol) || !l.features) continue;
+    tendencia.set(l.symbol, {
+      votos: (l.features.votos as number | null) ?? null,
+      dia: (l.features.dia as string | null) ?? null,
+      prazos: (l.features.prazos as Leitura["prazos"]) ?? {},
+      podeEntrar: typeof l.features.pode_entrar === "boolean" ? l.features.pode_entrar : null,
+      em: l.created_at,
+    });
+  }
+
   return {
-    ciclos: (ciclos.data ?? []) as Decisao[],
+    ciclos,
     contas: (contas.data ?? []) as Conta[],
     ultimaColeta: (coleta.data?.[0]?.created_at as string | undefined) ?? null,
+    tendencia,
   };
 }
 
@@ -167,6 +246,9 @@ export function montarOperacoes(ciclos: Decisao[]): Operacao[] {
       // voltou na venda, ja liquido da taxa de saida.
       const b = ent?.order_result;
       const custo = b ? b.preco * (b.quantidade ?? 0) + (b.taxa ?? 0) : null;
+      // Sem a linha da compra (perdida numa falha entre gravar a conta e
+      // concluir a decisão), o preço de entrada vem da própria venda.
+      const precoEntrada = b?.preco ?? o.preco_entrada ?? 0;
       const receita =
         o.caixa_depois ?? (o.quantidade ? o.preco * o.quantidade - (o.taxa ?? 0) : null);
       const resultado = custo !== null && receita !== null ? receita - custo : (o.resultado ?? 0);
@@ -174,11 +256,12 @@ export function montarOperacoes(ciclos: Decisao[]): Operacao[] {
         par: c.symbol,
         entradaEm: ent?.created_at ?? c.created_at,
         saidaEm: c.created_at,
-        precoEntrada: b?.preco ?? 0,
+        precoEntrada,
         precoSaida: o.preco,
         resultado,
         resultadoPct: custo ? (resultado / custo) * 100 : (o.resultado_pct ?? 0),
         motivo: o.motivo ?? "",
+        explicacao: o.explicacao ?? null,
       });
     }
   }
@@ -190,7 +273,8 @@ export function montarPosicoes(
   pares: string[],
   contas: Conta[],
   ciclos: Decisao[],
-  preco: Map<string, number>
+  preco: Map<string, number>,
+  tendencia: Map<string, Leitura> = new Map()
 ): Posicao[] {
   return pares.map((par) => {
     const conta = contas.find((c) => c.asset === par);
@@ -201,14 +285,26 @@ export function montarPosicoes(
 
     let custo: number | null = null;
     let abertaEm: string | null = null;
+    let explicacao: string | null = null;
     if (aberta) {
+      // A última operação do par, e não a última COMPRA: se a linha da compra
+      // atual se perdeu (falha entre gravar a conta e concluir a decisão), a
+      // última compra encontrada seria a anterior, já vendida, e o custo sairia
+      // errado. Só vale como compra desta posição se for BUY ao preço de
+      // entrada que a conta guarda; senão, cai no preço de entrada da conta.
       const compra = [...ciclos]
         .reverse()
-        .find((c) => c.symbol === par && c.order_result?.lado === "BUY");
-      const o = compra?.order_result;
+        .find((c) => c.symbol === par && c.order_result);
+      const candidata = compra?.order_result;
+      const bate =
+        candidata?.lado === "BUY" &&
+        (!conta?.preco_entrada ||
+          Math.abs(candidata.preco - conta.preco_entrada) <= 1e-9 * conta.preco_entrada);
+      const o = bate ? candidata : null;
       if (o) {
         custo = o.preco * (o.quantidade ?? quantidade) + (o.taxa ?? 0);
         abertaEm = compra!.created_at;
+        explicacao = o.explicacao ?? null;
       } else if (conta?.preco_entrada) {
         custo = conta.preco_entrada * quantidade;
       }
@@ -231,6 +327,8 @@ export function montarPosicoes(
       stop: conta?.stop_loss ?? null,
       alvo: conta?.take_profit ?? null,
       abertaEm,
+      tendencia: tendencia.get(par) ?? null,
+      explicacao,
     };
   });
 }

@@ -145,6 +145,9 @@ class ConsultaDuble:
     def eq(self, *_):
         return self
 
+    def neq(self, *_):
+        return self
+
     def limit(self, *_):
         return self
 

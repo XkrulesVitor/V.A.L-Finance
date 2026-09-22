@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { Operacao } from "@/lib/carteira";
 import { sinal, usd } from "@/lib/carteira";
 import { dataHora } from "@/lib/tempo";
@@ -13,6 +14,8 @@ const MOTIVO: Record<string, string> = {
   "alvo atingido": "alvo",
   "tese de saida": "decisão",
   "nivel rompido": "stop",
+  "tendencia virou": "tendência",
+  "stop de catastrofe": "proteção",
 };
 
 function duracao(ini: string, fim: string) {
@@ -47,7 +50,8 @@ export function HistoricoDeOperacoes({ operacoes }: { operacoes: Operacao[] }) {
           {operacoes.map((o, i) => {
             const cor = o.resultado >= 0 ? "text-vale-alta" : "text-vale-baixa";
             return (
-              <tr key={`${o.par}-${o.saidaEm}-${i}`} className="border-t border-vale-fio bg-vale-superficie">
+              <Fragment key={`${o.par}-${o.saidaEm}-${i}`}>
+              <tr className="border-t border-vale-fio bg-vale-superficie">
                 <td className="px-5 py-3.5 text-[14px] font-medium text-vale-tinta">
                   {o.par.replace("USDT", "")}
                 </td>
@@ -74,6 +78,14 @@ export function HistoricoDeOperacoes({ operacoes }: { operacoes: Operacao[] }) {
                   </span>
                 </td>
               </tr>
+              {o.explicacao && (
+                <tr className="bg-vale-superficie">
+                  <td colSpan={6} className="px-5 pb-3.5 pt-0 text-[12.5px] leading-relaxed text-vale-tinta-3">
+                    {o.explicacao}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>

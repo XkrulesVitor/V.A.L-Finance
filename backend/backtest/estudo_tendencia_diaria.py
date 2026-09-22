@@ -54,11 +54,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backtest.engine import BUY, HOLD, NO_TRADE, SELL, rodar_backtest  # noqa: E402
+from backtest.engine import BUY, HOLD, rodar_backtest  # noqa: E402
 from backtest.estudo_votacao import ATIVOS, FIM, HORAS_JANELA, N_JANELAS  # noqa: E402
 from backtest.run_baseline import buscar_historico_com_cache  # noqa: E402
+from estrategia import tendencia_diaria as regra  # noqa: E402
 
-LOOKBACKS = (10, 20, 30, 50, 70, 100)
+# A regra mora em estrategia/tendencia_diaria.py -- o mesmo modulo que o
+# ciclo ao vivo importa. Este estudo so a alimenta com historico.
+LOOKBACKS = regra.LOOKBACKS
 AQUECIMENTO_DIAS = 110
 TAXA = 0.001
 DIA_MS = 86_400_000
@@ -83,13 +86,9 @@ def votos_por_dia(serie):
     closes = [fechamentos[d] for d in dias]
     votos = {}
     for i, d in enumerate(dias):
-        if i + 1 < max(LOOKBACKS):
-            continue
-        v = 0
-        for L in LOOKBACKS:
-            media = sum(closes[i + 1 - L : i + 1]) / L
-            v += closes[i] > media
-        votos[d] = v
+        v = regra.votos(closes[max(0, i + 1 - max(LOOKBACKS)) : i + 1])
+        if v is not None:
+            votos[d] = v
     return votos
 
 
@@ -102,12 +101,7 @@ class Binaria:
 
     def __call__(self, ctx):
         dia_anterior = ctx.candle_atual["abertura_em"] // DIA_MS - 1
-        v = self.votos.get(dia_anterior)
-        if v is None:
-            return HOLD if ctx.posicao_aberta else NO_TRADE
-        if ctx.posicao_aberta:
-            return SELL if v <= 2 else HOLD
-        return BUY if v >= 4 else NO_TRADE
+        return regra.decidir(self.votos.get(dia_anterior), ctx.posicao_aberta)
 
 
 def simular_fracionaria(candles, votos, alvo_fixo=None):
@@ -194,6 +188,14 @@ def main():
         for j in range(N_JANELAS):
             candles = serie[base + j * HORAS_JANELA : base + (j + 1) * HORAS_JANELA]
             if len(candles) < HORAS_JANELA * 0.95:
+                continue
+            # Janela so conta se a regra ja tem voto no primeiro dia dela.
+            # Sem isto, um ativo listado ha pouco (SOL em ago/2020) teria
+            # janelas em que a regra passa semanas sem poder votar e o b&h
+            # compra no primeiro candle -- a comparacao mediria o aquecimento,
+            # nao a regra. Nos periodos ja rodados todas as janelas tinham voto.
+            if votos.get(candles[0]["abertura_em"] // DIA_MS - 1) is None:
+                print(f"  {ativo} j{j} fora: sem voto no inicio da janela (historico curto)")
                 continue
             var = (candles[-1]["fechamento"] / candles[0]["abertura"] - 1) * 100
             reg = "alta" if var > 10 else "baixa" if var < -10 else "lateral"

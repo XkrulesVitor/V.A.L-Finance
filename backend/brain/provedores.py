@@ -64,7 +64,19 @@ class ProvedorLLM(ABC):
     variavel_de_chave: str = "?"
     variavel_de_modelo: str = "?"
 
-    def __init__(self, modelo: str | None = None, api_key: str | None = None, cliente=None):
+    def __init__(
+        self,
+        modelo: str | None = None,
+        api_key: str | None = None,
+        cliente=None,
+        timeout_s: float | None = None,
+    ):
+        # `timeout_s` e opcional e so vale para o cliente criado aqui. Sem ele
+        # o SDK do Gemini espera para sempre (HttpOptions.timeout = None) e o
+        # da Anthropic, 600 s com novas tentativas. Quem esta no caminho de
+        # algo que nao pode esperar -- o explicador, entre um par e outro do
+        # ciclo ao vivo -- passa um valor curto.
+        self.timeout_s = timeout_s
         self.modelo = (
             modelo
             or os.environ.get("LLM_MODELO")
@@ -136,6 +148,13 @@ class ProvedorGemini(ProvedorLLM):
     def _criar_cliente(self, chave):
         from google import genai
 
+        if self.timeout_s:
+            from google.genai import types
+
+            return genai.Client(
+                api_key=chave,
+                http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
+            )
         return genai.Client(api_key=chave)
 
     def gerar(self, instrucao_de_sistema, prompt, schema):
@@ -195,6 +214,8 @@ class ProvedorClaude(ProvedorLLM):
     def _criar_cliente(self, chave):
         import anthropic
 
+        if self.timeout_s:
+            return anthropic.Anthropic(api_key=chave, timeout=self.timeout_s, max_retries=1)
         return anthropic.Anthropic(api_key=chave)
 
     def gerar(self, instrucao_de_sistema, prompt, schema):
@@ -256,6 +277,7 @@ def criar_provedor(
     modelo: str | None = None,
     api_key: str | None = None,
     cliente=None,
+    timeout_s: float | None = None,
 ) -> ProvedorLLM:
     """
     Monta o provedor pedido, ou o de `LLM_PROVEDOR`, ou o padrao.
@@ -276,4 +298,6 @@ def criar_provedor(
         raise ErroDoProvedor(
             f"provedor {nome!r} desconhecido; disponiveis: {sorted(PROVEDORES)}"
         )
-    return PROVEDORES[escolhido](modelo=modelo, api_key=api_key, cliente=cliente)
+    return PROVEDORES[escolhido](
+        modelo=modelo, api_key=api_key, cliente=cliente, timeout_s=timeout_s
+    )

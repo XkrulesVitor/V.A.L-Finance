@@ -44,7 +44,7 @@ export default async function Carteira() {
   } catch (e) {
     return <Diagnostico erro={e instanceof Error ? e.message : String(e)} />;
   }
-  const { ciclos, contas } = dados;
+  const { ciclos, contas, tendencia } = dados;
 
   const pares = [...new Set(ciclos.map((c) => c.symbol))].sort();
   const ultimoCiclo = precosDoUltimoCiclo(ciclos);
@@ -52,7 +52,7 @@ export default async function Carteira() {
   const precoFinal = new Map(pares.map((p) => [p, aoVivo.get(p) ?? ultimoCiclo.get(p) ?? 0]));
   const tudoAoVivo = pares.every((p) => aoVivo.has(p));
 
-  const posicoes = montarPosicoes(pares, contas, ciclos, precoFinal);
+  const posicoes = montarPosicoes(pares, contas, ciclos, precoFinal, tendencia);
   const operacoes = montarOperacoes(ciclos);
 
   const inicial = pares.length * CAPITAL_POR_CONTA;

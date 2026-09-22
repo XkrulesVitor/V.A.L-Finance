@@ -3,12 +3,12 @@ import { Diagnostico } from "@/app/Diagnostico";
 import { variaveisFaltando } from "@/lib/supabase";
 import { Cabecalho } from "@/app/_componentes/Cabecalho";
 import { FluxoDeDecisoes } from "@/app/_componentes/FluxoDeDecisoes";
-import { carregar } from "@/lib/carteira";
+import { ENTRA_COM, SAI_COM, TENDENCIA_DESDE, carregar } from "@/lib/carteira";
 import { diaMes } from "@/lib/tempo";
 
 export const metadata: Metadata = {
   title: "Motor",
-  description: "Como o sistema está decidindo: ciclos, teses do cérebro, vetos do motor de risco.",
+  description: "Como o sistema está decidindo: a regra de tendência, ciclo a ciclo.",
 };
 
 export const revalidate = 0;
@@ -16,7 +16,7 @@ export const revalidate = 0;
 /*
  * O motor por dentro. Saiu da página inicial porque é leitura de quem
  * opera o sistema, não de quem acompanha o dinheiro — mas nada se perdeu:
- * o fluxo de decisões com as duas vozes (cérebro e risco) continua aqui.
+ * o fluxo de decisões continua aqui, inclusive o da estratégia antiga.
  */
 
 export default async function Motor() {
@@ -29,7 +29,8 @@ export default async function Motor() {
   } catch (e) {
     return <Diagnostico erro={e instanceof Error ? e.message : String(e)} />;
   }
-  const { ciclos, ultimaColeta } = dados;
+  const { ciclos, ultimaColeta, tendencia } = dados;
+  const pares = [...new Set(ciclos.map((c) => c.symbol))].sort();
 
   const ultimo = ciclos[ciclos.length - 1];
   const minutos = ultimo
@@ -39,12 +40,12 @@ export default async function Motor() {
   // médio). Um limiar de 1 h chamaria de parado um sistema saudável.
   const vivo = minutos !== null && minutos < 420;
 
-  const consultas = ciclos.filter((c) => c.llm_output).length;
-  const vetos = ciclos.filter((c) => c.risk_result?.aprovado === false).length;
-  const overrides = ciclos.filter((c) => c.risk_result?.override_do_llm).length;
-  const erros = ciclos.filter((c) => c.status === "brain_error").length;
+  // Deslize contra onde o BACKTEST executaria (abertura das 01:00 UTC depois
+  // do voto, ou do candle seguinte ao stop), só nas operações da regra. O
+  // `deslize_pct` antigo de cada ciclo comparava com a abertura da hora em
+  // curso, que só era a referência certa para a estratégia híbrida.
   const deslizes = ciclos
-    .map((c) => c.market_snapshot?.deslize_pct)
+    .map((c) => c.order_result?.referencia_backtest?.deslize_pct)
     .filter((v): v is number => typeof v === "number");
   const deslize = deslizes.length ? deslizes.reduce((a, b) => a + b, 0) / deslizes.length : null;
 
@@ -67,21 +68,31 @@ export default async function Motor() {
             Motor
           </h1>
           <p className="mt-4 max-w-[56ch] text-[14.5px] leading-relaxed text-vale-tinta-2">
-            Cada ciclo confere stop e alvo; a cada 6 h o cérebro propõe uma tese e o motor
-            de risco decide. Execução simulada ao preço real — nenhuma ordem sai para
-            corretora.
+            Uma vez por dia, compara o preço com a média de seis prazos: entra com {ENTRA_COM}{" "}
+            em alta, sai com {SAI_COM} ou menos. Toda hora confere a proteção de 20% abaixo
+            da entrada. O LLM não decide — só explica cada operação. Execução simulada ao
+            preço real; nenhuma ordem sai para corretora.
           </p>
         </section>
 
         <section className="grid grid-cols-2 gap-px border border-vale-fio bg-vale-fio lg:grid-cols-6">
           <Medida rotulo="ciclos" valor={String(ciclos.length)} nota={ciclos[0] ? `desde ${diaMes(ciclos[0].created_at)}` : ""} />
-          <Medida rotulo="consultas ao cérebro" valor={String(consultas)} nota={`${erros} com erro`} />
-          <Medida rotulo="vetos do risco" valor={String(vetos)} nota="entradas barradas" />
-          <Medida rotulo="risco sobrepôs" valor={String(overrides)} nota="contra a tese" />
+          <Medida rotulo="regra" valor="tendência" nota={`desde ${diaMes(TENDENCIA_DESDE + "T12:00:00Z")}`} />
+          {pares.slice(0, 2).map((par) => {
+            const l = tendencia.get(par);
+            return (
+              <Medida
+                key={par}
+                rotulo={par.replace("USDT", "")}
+                valor={l?.votos != null ? `${l.votos} de 6` : "—"}
+                nota={l?.dia ? `prazos em alta · ${diaMes(l.dia + "T12:00:00Z")}` : "sem leitura ainda"}
+              />
+            );
+          })}
           <Medida
-            rotulo="deslize médio"
-            valor={deslize === null ? "—" : `${deslize >= 0 ? "+" : ""}${deslize.toFixed(3)}%`}
-            nota="ao vivo vs backtest"
+            rotulo="deslize vs backtest"
+            valor={deslize === null ? "—" : `${deslize >= 0 ? "+" : ""}${deslize.toFixed(2)}%`}
+            nota={deslizes.length ? `média de ${deslizes.length} operações` : "sem operação medida"}
           />
           <Medida
             rotulo="coleta"

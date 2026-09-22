@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { CaretDown, Warning } from "@phosphor-icons/react";
 import { dataHora } from "@/lib/tempo";
 
@@ -14,6 +14,10 @@ import { dataHora } from "@/lib/tempo";
  * operação até agora, contra um HOLD do modelo.
  *
  * Um log que só mostrasse a ação final esconderia exatamente isso.
+ *
+ * Desde 22/09 a decisão é de uma regra de tendência, e a primeira voz passa
+ * a ser o placar dela: quantos dos 6 prazos estavam em alta. O LLM não
+ * decide mais — quando há operação, a frase dele aparece no detalhe.
  */
 
 type Ciclo = {
@@ -21,16 +25,23 @@ type Ciclo = {
   created_at: string;
   symbol: string;
   status: string;
+  votos?: number | null;
+  estrategia?: string | null;
   market_snapshot: { preco_atual: number } | null;
   llm_output: { direction: string; horizon: string; confidence: number; reasoning: string } | null;
   risk_result: {
     acao_final: string;
-    aprovado: boolean;
-    override_do_llm: boolean;
+    aprovado?: boolean;
+    override_do_llm?: boolean;
     motivo: string;
     direcao_do_llm?: string | null;
   } | null;
-  order_result: { lado: string; preco: number; resultado_pct?: number | null } | null;
+  order_result: {
+    lado: string;
+    preco: number;
+    resultado_pct?: number | null;
+    explicacao?: string | null;
+  } | null;
 };
 
 const TOM: Record<string, string> = {
@@ -43,6 +54,17 @@ const TOM: Record<string, string> = {
 export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
+  // O divisor da troca aparece uma vez só: logo abaixo da linha MAIS ANTIGA
+  // da regra de tendência (a lista vem da mais recente para a mais antiga).
+  // Comparar vizinhos punha um divisor falso em cima de qualquer linha sem
+  // `features` no meio da era nova, como uma reivindicação que ficou órfã.
+  let ultimaDaTendencia = -1;
+  ciclos.forEach((c, i) => {
+    if (c.estrategia === "tendencia_diaria") ultimaDaTendencia = i;
+  });
+  const indiceDoDivisor =
+    ultimaDaTendencia >= 0 && ultimaDaTendencia < ciclos.length - 1 ? ultimaDaTendencia + 1 : -1;
+
   if (!ciclos.length) {
     return (
       <div className="rounded border border-dashed border-vale-fio px-6 py-10 text-center text-[13.5px] text-vale-tinta-3">
@@ -54,7 +76,11 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
   return (
     <div className="border border-vale-fio">
       {ciclos.map((c, i) => {
-        const temDetalhe = Boolean(c.llm_output?.reasoning || c.risk_result?.motivo);
+        const tendencia = c.estrategia === "tendencia_diaria";
+        const explicacao = c.order_result?.explicacao ?? null;
+        const temDetalhe = Boolean(c.llm_output?.reasoning || c.risk_result?.motivo || explicacao);
+        // Onde a lista (mais recente primeiro) cruza a troca de estratégia.
+        const troca = i === indiceDoDivisor;
         const expandido = aberto === c.id;
         const override = c.risk_result?.override_do_llm ?? false;
         const executou = Boolean(c.order_result);
@@ -70,8 +96,13 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
         const consultou = Boolean(c.llm_output);
 
         return (
+          <Fragment key={c.id}>
+          {troca && (
+            <div className="border-t border-vale-fio bg-vale-fundo px-4 py-2.5 text-[11px] uppercase tracking-[0.1em] text-vale-tinta-3 sm:px-5">
+              22/09 · acima, regra de tendência · abaixo, estratégia híbrida (LLM decidia)
+            </div>
+          )}
           <div
-            key={c.id}
             className={`${i > 0 ? "border-t border-vale-fio" : ""} ${
               executou ? "bg-vale-elevado/45" : "bg-vale-superficie"
             }`}
@@ -96,7 +127,11 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
 
               {/* as duas vozes */}
               <span className="col-span-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:col-span-1">
-                {tese ? (
+                {tendencia ? (
+                  <span className="num text-[12.5px] text-vale-tinta-2" title="prazos em alta no último dia fechado">
+                    {c.votos ?? "—"}/6
+                  </span>
+                ) : tese ? (
                   <span
                     className={`num text-[12.5px] ${
                       override
@@ -179,10 +214,20 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
                   {c.risk_result?.motivo && (
                     <div>
                       <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
-                        motor de risco
+                        {tendencia ? "regra" : "motor de risco"}
                       </div>
                       <p className="mt-2 max-w-[58ch] text-[13px] leading-relaxed text-vale-tinta-2">
                         {c.risk_result.motivo}
+                      </p>
+                    </div>
+                  )}
+                  {explicacao && (
+                    <div>
+                      <div className="text-[10.5px] uppercase tracking-[0.1em] text-vale-tinta-3">
+                        em palavras
+                      </div>
+                      <p className="mt-2 max-w-[58ch] text-[13px] leading-relaxed text-vale-tinta-2">
+                        {explicacao}
                       </p>
                     </div>
                   )}
@@ -190,6 +235,7 @@ export function FluxoDeDecisoes({ ciclos }: { ciclos: Ciclo[] }) {
               </div>
             )}
           </div>
+          </Fragment>
         );
       })}
     </div>

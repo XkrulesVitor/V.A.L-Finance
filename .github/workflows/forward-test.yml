@@ -13,13 +13,20 @@ name: Forward test (passo 8a)
 # do ARCHITECTURE.md. Mexer nele depois de ver o numero seria
 # interpretacao conveniente, entao ele nao se mexe.
 #
+# TROCA DE ESTRATEGIA EM 2026-09-22 (decidida em 2026-09-19): de la pra ca quem decide e a regra
+# de tendencia diaria (`--estrategia tendencia`, o padrao do rodar.py),
+# sem LLM na decisao -- ele so escreve a explicacao de cada operacao, por
+# isso a chave continua aqui. As contas seguiram de onde estavam. Criterio
+# de leitura da nova fase: ARCHITECTURE.md, secao 11, "Troca do motor ao
+# vivo". Pra voltar a hibrida: `--estrategia hibrida` no comando abaixo.
+#
 # Aos :10 e nao aos :05 pra nao concorrer com o workflow de coleta --
 # duas execucoes simultaneas gravando na mesma tabela nao quebrariam
 # nada (o indice unico protege), mas o log fica mais facil de ler.
 #
-# A cadencia e horaria porque a ETAPA 1 (stop/take) precisa rodar toda
-# hora. O cerebro so e consultado a cada 6h, e quem decide isso e o
-# `brain/cadencia.py`, nao o cron -- ver `live/ciclo.py`.
+# A cadencia e horaria porque o stop precisa ser conferido toda hora. A
+# regra de tendencia so muda de ideia uma vez por dia (fechamento UTC),
+# mas descobrir um stop com um dia de atraso nao e aceitavel.
 #
 # Sobre a Binance: o ciclo usa `somente_dados_publicos`, entao sai pelo
 # `data-api.binance.vision`. Os outros endpoints respondem 451 pro IP do

@@ -188,6 +188,8 @@ Frontend Next.js no Vercel — lê do Supabase e mostra
 
 ## 6. Modelo de decisão
 
+> **Desde 22/09/2026 o forward test não usa mais este modelo.** Quem decide é a regra determinística de tendência diária (`backend/estrategia/tendencia_diaria.py`), e o LLM só escreve uma frase explicando cada operação já executada. O modelo abaixo (LLM propõe, Risk Engine decide) continua no código, acessível por `rodar.py --estrategia hibrida`, e é o que produziu o histórico de 04/09 a 21/09. Motivo e números: seção 11, "Troca do motor ao vivo".
+
 Estados possíveis em cada ciclo:
 
 - `BUY` — abrir ou aumentar posição
@@ -416,7 +418,7 @@ Duas pastas do backtest ficam fora do git (`.gitignore`): `backend/backtest/.cac
 5. ✅ **Cérebro (LLM)** — gerar a tese a partir das features.
 6. ✅ **Risk Engine** — calcular stop-loss/take-profit via ATR e validar a tese antes de qualquer ordem.
 7. ⚠️ **Backtest da estratégia híbrida** — comparar contra a baseline do passo 4. *Construído e testado; rodado sobre 91 dias, não sobre o ano — a cota do Gemini (500/dia) não permitiu. **A híbrida perdeu para as duas baselines** no recorte (seção 11).*
-8. 🔲 **Paper trading** — testnet de verdade por semanas, com decision_id completo de cada ciclo.
+8. ⚙️ **Forward test (8a)** — rodando desde 04/09/2026 com preenchimento simulado ao preço real. De 04/09 a 21/09 com a híbrida; **desde 22/09 com a regra de tendência diária** (seção 11). A testnet (8b) segue adiada.
 9. 🔲 **Dashboard completo** — carteira, decisões com raciocínio, performance ao longo do tempo.
 10. 🔲 **Avaliar expansão** — outro mercado (B3/internacional), ou considerar dinheiro real.
 
@@ -903,18 +905,34 @@ Estratégia que fica pouco tempo comprada tem drawdown menor por definição —
 
 O único ensemble com precedente na literatura para cripto (Zarattini, Pagani & Barbon 2025; Detzel et al. 2021; Liu & Tsyvinski 2021): várias versões da **mesma** ideia — preço diário acima da média de L dias, L ∈ {10, 20, 30, 50, 70, 100} —, sinal só no fechamento do dia, sem take-profit, saída pela reversão do sinal. Duas configurações: binária (entra ≥ 4/6, sai ≤ 2/6) e fracionária (exposição = votos/6). **O design veio da literatura, não destes dados.**
 
-| Contra b&h de mesma exposição, fração fixa | 2024–2026 | **2022–2024 (fora da amostra)** |
-|---|---|---|
-| Tendência diária, binária | +4,58 pts | **−1,84 pts** |
-| Tendência diária, fracionária | +5,08 pts | **−2,05 pts** |
+| Contra b&h de mesma exposição, fração fixa | 2024–2026 | **2022–2024 (fora)** | **2020–2022 (fora)** |
+|---|---|---|---|
+| Tendência diária, binária | +4,58 pts | **−1,84 pts** | **+31,67 pts** |
+| Tendência diária, fracionária | +5,08 pts | **−2,05 pts** | **+20,66 pts** |
 
-| Tendência binária | 2024–2026 | 2022–2024 |
-|---|---|---|
-| Retorno médio (b&h) | 13,00% (13,99%) | 9,34% (15,07%) |
-| Drawdown médio (b&h) | −20,95% (−32,54%) | −23,51% (−30,43%) |
-| Trades por janela | 3,2 | 3,2 |
+| Tendência binária | 2024–2026 | 2022–2024 | 2020–2022 |
+|---|---|---|---|
+| Retorno médio (b&h) | 13,00% (13,99%) | 9,34% (15,07%) | 74,23% (79,14%) |
+| Drawdown médio (b&h) | −20,95% (−32,54%) | −23,51% (−30,43%) | −30,29% (−46,92%) |
+| Trades por janela | 3,2 | 3,2 | 2,7 |
 
-**A vantagem da amostra não se repetiu fora dela.** O que se repete nos dois períodos é o perfil: drawdown menor com pouquíssimas operações, pagando parte da alta. É um **freio de risco barato**, não uma fonte de alfa.
+O terceiro período (8 janelas terminando em 2022-09-03, com a mesma configuração) foi rodado em 19/09/2026, às 05:10 UTC, no mesmo dia da decisão da troca. Ele tem 63 janelas, não 64. A janela 0 do SOL ficou de fora por uma guarda nova no estudo: a janela só conta se a regra já tem voto no primeiro dia dela. O SOL foi listado em agosto de 2020 e não tinha os 100 dias de histórico. Nos dois primeiros períodos a guarda não tirou nenhuma janela.
+
+**O +31,67 de 2020–22 não é só o DOGE.** A média é inflada por janelas extremas: o DOGE subiu 1.454% numa janela de 2021. Por isso a comparação com fração fixa foi refeita com medidas que um outlier não domina (diferença por janela, binária):
+
+| Binária − b&h de fração fixa, por janela | 2024–2026 | 2022–2024 | 2020–2022 |
+|---|---|---|---|
+| Mediana | +3,66 pts | −1,06 pts | +6,66 pts |
+| Média aparada (5% de cada lado) | +3,04 pts | −1,33 pts | +16,41 pts |
+| Média geométrica | +2,04% | −3,10% | +8,00% |
+| Janelas vencidas | 40/64 | 27/64 | 39/63 |
+
+As três medidas dão o mesmo sinal da média nos três períodos. **Pela regra de adoção (bater a fração fixa em pelo menos 2 de 3 períodos), a regra passa: 2 de 3.** A regra de adoção foi dita ao dono na conversa de 18–19/09, antes de rodar 2020–22, e escrita aqui enquanto o teste rodava. **Não é um pré-registro versionado:** regra e resultado entram no mesmo commit, e quem ler depois tem só a palavra deste documento. Duas ressalvas, registradas antes de qualquer comemoração:
+
+- a fração f é escolhida para igualar o drawdown **médio do próprio período**, o que também usa informação do período. Na versão por janela, que favorece o b&h, a binária perde nos três: −4,58, −8,28 e −4,33 pts;
+- o período perdido (2022–24) é o de queda seguida de lateralização. É o regime em que a regra vai perder de novo.
+
+Leitura honesta: há alguma vantagem de timing, não só de exposição, mas pequena e dependente do regime. O perfil que se repete nos três períodos continua sendo o principal: **drawdown bem menor** (−30% contra −47% em 2020–22) com 3 operações por trimestre.
 
 Conferência do simulador fracionário: com exposição fixa em 100% ele difere do b&h do motor em até 3–4 pts, e a causa foi verificada — o motor só compra na abertura do segundo candle; contra um b&h que entra no mesmo candle a diferença cai para 0,02 pt.
 
@@ -924,7 +942,81 @@ Nenhuma regra técnica testada — de 1h ou diária, isolada ou em votação —
 
 A pergunta do projeto passa de "como bater o mercado" para "**quanto do movimento de alta dá para capturar com quanto de drawdown, com que giro**". Essa pergunta tem resposta mensurável, e o ensemble diário responde melhor do que tudo o que foi testado em 1h.
 
-Registro de multiplicidade: foram testadas 18 configurações neste bloco (16 + 2). Nenhuma foi escolhida olhando o resultado; o estudo 2 foi desenhado a partir da literatura depois do estudo 1, e isso fica registrado aqui.
+Registro de multiplicidade: foram testadas 18 configurações neste bloco (16 + 2), cada uma em até 3 períodos. Nenhuma foi escolhida olhando o resultado; o estudo 2 foi desenhado a partir da literatura depois do estudo 1, e isso fica registrado aqui.
+
+### Troca do motor ao vivo: tendência diária (decidida em 19/09, no ar em 22/09/2026)
+
+Depois dos estudos acima, o dono escolheu trocar a híbrida pela **tendência diária binária** no forward test. O motivo não é retorno. É que a híbrida não tem evidência a favor: os backtests dela estão contaminados por memorização do modelo e ela perdeu para as duas baselines. A regra de tendência tem ao menos um perfil que se repete: menos drawdown, poucas operações. **Expectativa registrada antes do primeiro trade: menos drawdown, não mais retorno.**
+
+**Uma regra, dois usuários.** A regra mora em `backend/estrategia/tendencia_diaria.py`, e tanto o estudo (`backtest/estudo_tendencia_diaria.py`) quanto o ciclo ao vivo (`live/ciclo_tendencia.py`) importam dela. Na refatoração, o estudo foi rodado de novo e as 192 linhas de resultado saíram idênticas às anteriores.
+
+**O que o ciclo ao vivo faz:**
+
+- toda hora, reivindica o último candle de 1h fechado (a mesma idempotência de antes);
+- confere o stop contra todos os fechamentos de 1h que ainda não viu;
+- lê 100+ dias de candles diários, descarta o dia em andamento e conta os votos;
+- entra com 4 ou mais de 6, sai com 2 ou menos, mantém com 3. Não tem alvo;
+- se comprou ou vendeu, só depois de tudo gravado pede ao LLM uma frase em português simples (`live/explicador.py`). Se o LLM falhar, a operação fica igual, só sem a frase.
+
+**O stop de 20% não estava no design testado, e foi medido à parte** (`backtest/efeito_stop_catastrofe.py`). Ele existe porque o agendamento do GitHub deixa buracos de horas e uma posição não pode ficar sem piso. Nas mesmas janelas do estudo (64, 64 e 63; a guarda de aquecimento vale nos dois scripts):
+
+| | 2024–2026 | 2022–2024 | 2020–2022 |
+|---|---|---|---|
+| Stops disparados | 6, em 4 janelas | 4, em 4 janelas | 10, em 9 janelas |
+| Retorno, com − sem stop | −0,21 pt | −0,05 pt | +0,45 pt |
+| Drawdown, com − sem stop | −0,06 pt | −0,04 pt | +0,20 pt |
+
+Na média é neutro nos três períodos. Nos pares ao vivo disparou uma vez em 48 janelas (BTC e ETH, três períodos): ETH, em setembro de 2021 (período 2020–22), e melhorou aquela janela de −22,6% para −18,3%. O stop é conferido **só em fechamentos de 1h**, como no estudo. O ciclo antigo também vendia se o preço do instante estivesse abaixo do stop, mas essa mecânica nunca foi medida, e o replay offline não teria como reproduzi-la. Depois de um stop, a regra só volta a entrar com o voto de um dia que fechou **depois** da saída (`voto_vale_para_entrada`). Sem essa trava, recompraria na hora seguinte com o mesmo voto que mandou comprar. Na saída normal a trava não muda nada, porque sair com ≤ 2 e voltar com ≥ 4 já exige um dia novo.
+
+**A trava só olha stops da própria regra** (`ultima_saida_ms(..., motivo="stop de catastrofe")`). Na primeira versão ela contava qualquer venda. Com isso, uma saída da híbrida no mesmo dia UTC da entrada no ar seguraria a primeira compra da regra até o dia seguinte. É o que teria acontecido com o ETH se a troca tivesse saído em 21/09. Saindo em 22/09 não mudaria nada, mas a regra não deve depender do dia da troca.
+
+**Revisão adversarial antes de publicar (21–22/09).** Um revisor por dimensão e um cético por achado. O revisor do ciclo ao vivo reproduziu quatro problemas com os dublês de teste. Os quatro foram corrigidos:
+
+- **Reivindicação órfã escondia um stop furado.** Se o ciclo morria depois de reivindicar o candle, a linha "processando" avançava o ponto de partida da varredura, e os fechamentos do intervalo nunca eram conferidos. Agora `ultimo_candle_processado` ignora linhas órfãs, e o preço é lido antes da reivindicação. O ciclo antigo tinha o mesmo defeito, e a correção vale para os dois.
+- **Falha entre gravar a conta e concluir a decisão** apagava a operação do histórico e a trava pós-stop. `concluir_decisao` agora tenta 3 vezes. A atomicidade de verdade entre as duas tabelas exigiria uma função no Postgres. Como o risco residual é pequeno (falha persistente entre duas escritas seguidas), ele fica registrado aqui, sem essa função.
+- **Posição herdada da híbrida:** o stop por ATR (apertado) era tratado como stop de catástrofe. Agora os níveis são convertidos aos da regra no primeiro ciclo, e os antigos ficam registrados em `market_snapshot.niveis_herdados`.
+- **Stop no preço do instante**, que não foi medido. Foi removido (ver acima).
+
+Na segunda rodada, sobre o código já corrigido, vieram 20 achados, e 14 foram confirmados pelos céticos. Eles se resumem a 11 correções:
+
+- **O deslize media contra a referência errada.** O `deslize_pct` de cada ciclo compara com a abertura da hora em curso, que era onde a híbrida executaria no backtest. A regra diária o backtest executa na abertura das 01:00 UTC depois do voto, ou no candle seguinte ao stop. Cada operação agora grava `referencia_backtest` (instante, preço e deslize). Se o candle de referência ainda não abriu, o preço fica nulo e o instante fica gravado para a conferência offline completar. A página Motor passou a mostrar esse deslize.
+- **O explicador não tinha timeout.** O SDK do Gemini espera para sempre, e uma conexão pendurada segurava o par seguinte até o job morrer (15 min). Agora o provedor dele é criado com 30 s.
+- **O estudo do stop não tinha a guarda de aquecimento do estudo principal** e rodava 64 janelas em 2020–22 em vez de 63. A guarda foi aplicada e a tabela atualizada (+0,44 → +0,45).
+- **Frontend, cinco correções:**
+  - a leitura das decisões é paginada. O PostgREST corta em 1000 linhas, e sem paginação a página congelaria no passado quando o histórico passasse disso, o que no ritmo horário leva semanas;
+  - o divisor da troca aparece uma vez só, e não em cima de qualquer linha sem `features`;
+  - com a linha da compra perdida, a posição aberta não usa mais a compra anterior, que já foi vendida;
+  - o cartão em caixa diz que a regra está travada depois de um stop (`features.pode_entrar`);
+  - o preço ao vivo abaixo da proteção não aparece mais como "−1% abaixo".
+- **Documentação, três correções:**
+  - a data real em que 2020–22 foi rodado;
+  - "pré-registrada" trocado pelo que de fato aconteceu;
+  - o ano do stop do ETH.
+
+Seis achados foram refutados. Entre eles, a diferença de uma hora entre o voto usado ao vivo e o usado no estudo: o ao vivo age às 00:10 com o dia que acabou de fechar, e o estudo, às 01:00 com o mesmo dia. O voto é o mesmo, e só o preço de execução muda, que é o que `referencia_backtest` mede.
+
+**Testes:** `tests/test_tendencia_diaria.py`, 26 casos. Oito deles usam um dublê de banco que aplica os filtros de verdade; o dublê antigo ignorava `eq`/`neq`, e foi assim que a reivindicação órfã passou. Onze mutações foram injetadas de propósito e os testes pegaram todas:
+
+- deixar o dia em andamento votar;
+- tirar a trava de reentrada;
+- não varrer os fechamentos não vistos;
+- contar a reivindicação órfã como processada;
+- não converter os níveis herdados;
+- voltar a conferir o stop no preço do instante;
+- desligar a nova tentativa de concluir;
+- não gravar `pode_entrar` na leitura;
+- criar o explicador sem timeout;
+- não gravar a referência do backtest;
+- apontar a referência para o candle errado.
+
+**Estado na troca.** A decisão é de 19/09, mas a publicação saiu em 22/09, depois da revisão. Nesse intervalo a híbrida continuou operando e fez mais uma ida e volta no ETH, com +US$ 422,94. As contas não foram zeradas: BTC tem US$ 10.422,71 e ETH US$ 9.909,41, as duas em caixa. No período dela (04/09 a 21/09), a híbrida fechou 7 operações, com +US$ 332,12 no total (+1,66%). Em 22/09, BTC e ETH estavam com 6 de 6 prazos em alta (último dia fechado: 21/09), então o primeiro ciclo compra os dois. É o mesmo que o backtest faz no início de uma janela com tendência já instalada.
+
+#### Critério de leitura, fixado antes do primeiro trade
+
+1. **Fidelidade é o que o forward test consegue responder.** Cada decisão ao vivo tem que ser igual à regra aplicada aos mesmos candles diários da Binance, rodada offline. Qualquer divergência é bug e vem antes de qualquer leitura de resultado. Primeira conferência com 30 dias.
+2. **Deslize** contra o backtest: `order_result.referencia_backtest` de cada operação da regra. O `deslize_pct` do `market_snapshot` (contra a abertura da hora em curso) fica gravado, mas não mede a regra diária.
+3. **Retorno não se lê no forward test antes de 6 meses, e mesmo então fraco.** A regra faz ~3 operações por trimestre por ativo, e com dois ativos são ~12 idas e voltas em 6 meses. Isso não distingue vantagem de sorte. O juízo sobre o retorno vem dos testes em vários períodos, offline. Ao vivo, o resultado é comparado ao b&h de mesma exposição de BTC/ETH no mesmo período só como checagem de sanidade: ele deve cair dentro da dispersão das janelas do backtest.
+4. **Regra de adoção:** bater o b&h de mesma exposição (fração fixa) em pelo menos **2 de 3 períodos** de 2 anos. Combinada quando estava em 1 de 2; o terceiro período (2020–22) foi rodado depois e ganhou. Não há registro versionado anterior ao resultado (ver o estudo 2). Resultado: **2 de 3, passa**, com as ressalvas do estudo 2 acima. O próximo teste é dimensionar a posição pela volatilidade (alvo de volatilidade no lugar do all-in), medido contra esta mesma régua e registrado antes de rodar.
 
 ## 12. Considerações regulatórias e de risco
 
