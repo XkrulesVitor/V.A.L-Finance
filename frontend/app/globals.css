@@ -80,52 +80,59 @@ body {
    A animação da marca é CSS puro, e isso é decisão, não preguiça: duas
    versões com `motion/react` quebraram a hidratação em produção. Sem
    JavaScript no caminho, não existe nada mexendo no DOM enquanto o React
-   hidrata — a classe inteira de erro deixa de existir, e o SVG aparece
-   inteiro mesmo com JavaScript desligado.
+   hidrata, e o SVG aparece inteiro mesmo com JavaScript desligado.
 
-   A ordem conta a história: o preço traça, o stop entra, o vértice pisca
-   uma vez no ponto de contato. Uma vez só. Laço infinito em logo é ruído.
+   Três movimentos, todos com a origem no pé da letra (achatar e esticar
+   como borracha é o que combina com letra redonda):
+   - entrada: sobe do chão, uma letra depois da outra;
+   - onda: um pulinho a cada 9 s, o A mais alto (`--salto`);
+   - passar o mouse: a mesma onda, na hora. Ela entra como TERCEIRA
+     animação da lista, e não no lugar das outras: trocar a lista inteira
+     reiniciaria a entrada ao tirar o mouse.
 
-   A regra global de `prefers-reduced-motion` neutraliza tudo isto sem
-   precisar de hook. */
+   A regra global de `prefers-reduced-motion` neutraliza tudo isto. */
 
-.marca-traco {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 0;
-}
-.marca-anima .marca-traco {
-  animation: marca-desenha 0.75s cubic-bezier(0.65, 0, 0.35, 1) both;
-}
-
-.marca-anima .marca-stop {
-  transform-origin: 3px 22px;   /* cresce da esquerda, como o preço anda */
-  animation: marca-estende 0.45s ease-out 0.5s both;
-}
-
-.marca-ponto {
+.marca-letra {
   transform-box: fill-box;
-  transform-origin: center;
-}
-.marca-anima .marca-ponto {
-  animation: marca-toca 0.5s ease-out 0.72s both;
+  transform-origin: 50% 100%;
 }
 
-/* O opacity no primeiro quadro esconde a tampa redonda do traço: com
-   dasharray 1 e offset 1 o traço está "vazio", mas a ponta arredondada ainda
-   desenha um pontinho na origem durante um instante. */
-@keyframes marca-desenha {
-  0%   { stroke-dashoffset: 1; opacity: 0; }
-  2%   { opacity: 1; }
-  100% { stroke-dashoffset: 0; opacity: 1; }
+.marca-anima .marca-letra {
+  animation:
+    marca-entra 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) calc(var(--i) * 110ms) both,
+    marca-onda 9s ease-in-out calc(3s + var(--i) * 120ms) infinite;
 }
 
-@keyframes marca-estende {
-  from { transform: scaleX(0); opacity: 0; }
-  to   { transform: scaleX(1); opacity: 0.38; }
+.group:hover .marca-anima .marca-letra,
+.group:focus-visible .marca-anima .marca-letra {
+  animation:
+    marca-entra 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) calc(var(--i) * 110ms) both,
+    marca-onda 9s ease-in-out calc(3s + var(--i) * 120ms) infinite,
+    marca-pula 0.65s ease-in-out calc(var(--i) * 90ms);
 }
 
-@keyframes marca-toca {
-  0%   { transform: scale(0);   opacity: 0; }
-  60%  { transform: scale(1.5); opacity: 1; }
-  100% { transform: scale(1);   opacity: 1; }
+@keyframes marca-entra {
+  0%   { transform: translateY(105%); }
+  60%  { transform: translateY(-8%) scale(0.96, 1.05); }
+  78%  { transform: translateY(0) scale(1.06, 0.92); }
+  90%  { transform: scale(0.99, 1.02); }
+  100% { transform: none; }
 }
+
+/* O pulo ocupa o começo do ciclo (~0,8 s de 9 s); o resto é repouso. */
+@keyframes marca-onda {
+  0%, 10%, 100% { transform: none; }
+  1.6% { transform: scale(1.05, 0.93); }
+  4.5% { transform: translateY(calc(var(--salto) * -1%)) scale(0.96, 1.05); }
+  7.5% { transform: translateY(0) scale(1.05, 0.94); }
+  9%   { transform: scale(0.99, 1.01); }
+}
+
+@keyframes marca-pula {
+  0%, 100% { transform: none; }
+  16% { transform: scale(1.05, 0.93); }
+  45% { transform: translateY(calc(var(--salto) * -1%)) scale(0.96, 1.05); }
+  75% { transform: translateY(0) scale(1.05, 0.94); }
+  90% { transform: scale(0.99, 1.01); }
+}
+

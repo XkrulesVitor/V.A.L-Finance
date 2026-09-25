@@ -26,7 +26,7 @@ export function Cabecalho({ atual }: { atual: string }) {
   return (
     <header className="sticky top-0 z-50 h-16 border-b border-vale-fio bg-vale-fundo/85 backdrop-blur-xl">
       <div className="mx-auto flex h-full max-w-[1240px] items-center justify-between gap-4 px-4 sm:px-8">
-        <Link href="/" className="transition-opacity hover:opacity-70">
+        <Link href="/" aria-label="V.A.L Finance, início" className="group rounded py-2">
           <Assinatura />
         </Link>
 
