@@ -6,6 +6,9 @@ Um lugar so define quem existe, o nome que o leigo ve, a frase da regra
 le daqui; o site le a tabela `carteiras`, que e sincronizada a partir
 daqui a cada execucao (`sincronizar_catalogo`).
 
+    Nomes no site (simples, pedido do dono em 25/09); os ids e os nomes
+    tecnicos continuam nos documentos e no codigo:
+
     T1 Reguas            tendencia   ja no ar desde 22/09/2026
     T2 Tartarugas        tendencia   Turtle Trading, Sistema 2
     T3 Conselho de IAs   tendencia   painel de 3 IAs gratuitas
@@ -50,7 +53,7 @@ _PAINEL = {"painel": "painel-v1", "agregacao": "painel-agg-v1", "entra_com_soma"
 
 CARTEIRAS: tuple[Carteira, ...] = (
     Carteira(
-        "T1", "Réguas", "tendencia", "reguas", False,
+        "T1", "Tendência", "tendencia", "reguas", False,
         "Compara o preço com a média de 6 períodos (10 a 100 dias). Compra quando 4 ou mais "
         "mostram alta e vende quando só 2 ou menos mostram.",
         "compra quando o preco fecha o dia acima da media em pelo menos 4 de 6 prazos (10, 20, "
@@ -59,7 +62,7 @@ CARTEIRAS: tuple[Carteira, ...] = (
         "reguas-v1", 1, "2026-09-22T14:47:47+00:00", {**_REGUAS, **_STOP},
     ),
     Carteira(
-        "T2", "Tartarugas", "tendencia", "tartarugas", False,
+        "T2", "Rompimento", "tendencia", "tartarugas", False,
         "A estratégia de tendência mais famosa do mercado (Turtle Trading). Compra quando o preço "
         "bate o maior valor dos últimos 55 dias e vende quando cai ao menor dos últimos 20.",
         "compra quando o preco fecha acima do maior fechamento dos 55 dias anteriores; vende "
@@ -70,7 +73,7 @@ CARTEIRAS: tuple[Carteira, ...] = (
          "n_dias": tartarugas.N_DIAS, "stop_em_n": tartarugas.STOP_EM_N, "piso": tartarugas.PISO_DO_STOP},
     ),
     Carteira(
-        "T3", "Conselho de IAs", "tendencia", "painel", False,
+        "T3", "IAs", "tendencia", "painel", False,
         "Três IAs gratuitas de empresas diferentes olham os números do dia e dizem se a tendência "
         "é de alta, de lado ou de baixa. Compra quando a maioria vê alta e nenhuma vê baixa.",
         "tres IAs votam uma vez por dia se a tendencia das proximas semanas e de alta, de lado ou "
@@ -79,7 +82,7 @@ CARTEIRAS: tuple[Carteira, ...] = (
         "painel-t-v1", 3, None, {**_PAINEL, **_STOP},
     ),
     Carteira(
-        "G1", "Réguas com meta", "stop_gain", "reguas", True,
+        "G1", "Tendência com meta", "stop_gain", "reguas", True,
         "Compra como as Réguas, mas vende quando o lucro chega a uma meta (cerca de +9% no BTC e "
         "+12% no ETH hoje). Depois espera o preço recuar e a alta voltar para comprar de novo.",
         "compra como as Reguas (4 de 6 prazos em alta); vende quando o lucro atinge a meta de 3 "
@@ -99,7 +102,7 @@ CARTEIRAS: tuple[Carteira, ...] = (
          "sma_saida": rsi2.SMA_SAIDA, **_STOP},
     ),
     Carteira(
-        "G3", "Conselho com meta", "stop_gain", "painel", True,
+        "G3", "IAs com meta", "stop_gain", "painel", True,
         "Compra como o Conselho de IAs, mas vende quando o lucro chega à mesma meta das Réguas "
         "com meta. Depois só recompra quando o conselho deixar de ver alta e voltar a ver.",
         "compra quando o conselho de tres IAs soma +2; vende na meta de 3 vezes a oscilacao "

@@ -56,13 +56,13 @@ export type Carteira = {
 export const FAMILIAS = [
   {
     id: "tendencia",
-    titulo: "Seguem tendência",
+    titulo: "Seguram a alta",
     texto: "Compram quando a alta aparece e seguram enquanto ela durar.",
     aviso: null,
   },
   {
     id: "stop_gain",
-    titulo: "Stop gain",
+    titulo: "Vendem na meta",
     texto: "Vendem no lucro, sem esperar a alta acabar.",
     aviso: "Vender no lucro sobe a taxa de acerto mesmo sem ganhar mais dinheiro.",
   },

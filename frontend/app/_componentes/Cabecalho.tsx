@@ -10,8 +10,13 @@ import { Assinatura } from "./Marca";
  * (`/carteira/T1`…) acende o mesmo item.
  */
 
-const DESTINOS = [
+// O dono acompanha "Carteiras" e "Relatórios". O resto é técnico: aparece
+// só como um link discreto, e se abre nas próprias páginas técnicas.
+const PRINCIPAIS = [
   { href: "/", rotulo: "Carteiras" },
+  { href: "/relatorios", rotulo: "Relatórios" },
+];
+const TECNICOS = [
   { href: "/motor", rotulo: "Motor" },
   { href: "/backtests", rotulo: "Evidência" },
   { href: "/regimes", rotulo: "Regimes" },
@@ -26,7 +31,7 @@ export function Cabecalho({ atual }: { atual: string }) {
         </Link>
 
         <nav className="-mr-2 flex items-center">
-          {DESTINOS.map((d) => {
+          {[...PRINCIPAIS, ...(TECNICOS.some((t) => t.href === atual) ? TECNICOS : [])].map((d) => {
             const ativo = d.href === atual;
             return (
               <Link
@@ -43,6 +48,14 @@ export function Cabecalho({ atual }: { atual: string }) {
               </Link>
             );
           })}
+          {!TECNICOS.some((t) => t.href === atual) && (
+            <Link
+              href="/motor"
+              className="ml-2 rounded px-2 py-1.5 text-[11.5px] whitespace-nowrap text-vale-tinta-3/60 transition-colors hover:text-vale-tinta-2"
+            >
+              técnico
+            </Link>
+          )}
         </nav>
       </div>
     </header>
