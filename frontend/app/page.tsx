@@ -4,12 +4,12 @@ import { variaveisFaltando } from "@/lib/supabase";
 import { Cabecalho } from "@/app/_componentes/Cabecalho";
 import { CartaoDaCarteira } from "@/app/_componentes/CartaoDaCarteira";
 import { FAMILIAS, carregarVisao } from "@/lib/carteiras";
-import { PARES, sinal, usd } from "@/lib/carteira";
+import { PARES, preco, sinal, usd } from "@/lib/carteira";
 import { hora } from "@/lib/tempo";
 
 export const metadata: Metadata = {
   title: "Carteiras",
-  description: "Seis estratégias de bitcoin e ether, ao preço real.",
+  description: "Seis estratégias, seis moedas, ao preço real.",
 };
 
 // Cinco minutos: cada visita dentro da janela reaproveita a página pronta.
@@ -47,12 +47,12 @@ export default async function Carteiras() {
               </span>
             </p>
           </div>
-          <dl className="flex items-end gap-7">
+          <dl className="flex flex-wrap items-end gap-x-6 gap-y-3">
             {PARES.map((par) => (
               <div key={par}>
                 <dt className="text-[11px] uppercase tracking-[0.1em] text-vale-tinta-3">{par.replace("USDT", "")}</dt>
                 <dd className="num mt-1 text-[16px] tracking-[-0.02em] text-vale-tinta">
-                  {precos.has(par) ? usd(precos.get(par)!) : "—"}
+                  {precos.has(par) ? preco(precos.get(par)!) : "—"}
                 </dd>
               </div>
             ))}

@@ -97,7 +97,7 @@ function SemanaCartao({ s }: { s: Semana }) {
             </tr>
           ))}
           <tr className="bg-vale-fundo">
-            <td className="px-5 py-3 text-vale-tinta-3">Só segurar BTC e ETH</td>
+            <td className="px-5 py-3 text-vale-tinta-3">Só segurar as moedas</td>
             <td className="num px-3 py-3 text-right">
               <Pct v={s.referenciaPct} />
             </td>

@@ -28,7 +28,8 @@ import { resumirLeitura } from "@/lib/rotulos";
 export const CAPITAL_POR_CONTA = 10_000;
 /** Taxa por lado, a mesma de `backend/live/execucao.py`. */
 export const TAXA = 0.001;
-export const PARES = ["BTCUSDT", "ETHUSDT"];
+// Três grandes e três menores, na ordem em que aparecem no site.
+export const PARES = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "LINKUSDT", "ADAUSDT", "DOGEUSDT"];
 
 /**
  * Instante em que a T1 trocou a estratégia híbrida (LLM decidia) pela regra
@@ -517,5 +518,8 @@ export const usd = (v: number, casas = 2) =>
     minimumFractionDigits: casas,
     maximumFractionDigits: casas,
   });
+
+/** Preço de uma moeda: mais casas quando ela vale pouco (DOGE, ADA). */
+export const preco = (v: number) => usd(v, v < 1 ? 4 : v < 100 ? 3 : 2);
 
 export const sinal = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "");

@@ -51,7 +51,10 @@ from live.explicador import Explicador, explicar_pendentes  # noqa: E402
 from live.mercado import buscar_mercado  # noqa: E402
 from live.painel import Painel, compras_do_painel_desde  # noqa: E402
 
-PARES_PADRAO = ["BTCUSDT", "ETHUSDT"]
+# Tres grandes e tres menores (escolhidas em 25/09/2026: top-20 em valor de
+# mercado, liquidez alta na Binance, anos de historico e cobertas pelos
+# backtests do projeto -- ARCHITECTURE.md, secao 11, "Seis moedas").
+PARES_PADRAO = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "LINKUSDT", "ADAUSDT", "DOGEUSDT"]
 PRAZO_JOB_S = 13 * 60          # o workflow mata o job aos 15 min
 PRAZO_PAINEL_S = 6 * 60
 PAINEL_ATE_S = 11 * 60

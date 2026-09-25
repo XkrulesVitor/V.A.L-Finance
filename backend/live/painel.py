@@ -74,7 +74,9 @@ REGRA_VERSAO = "painel-agg-v1"
 TEMPERATURE = 0.2
 MAX_TOKENS = 4000
 TIMEOUT_S = 60.0
-TETO_POR_VAGA_ATIVO_DIA = 5
+# Com 6 moedas: 2 vagas do OpenRouter x 6 x 3 = 36 no pior dia, abaixo das
+# 50 requisicoes :free diarias da conta (eram 5 com 2 moedas).
+TETO_POR_VAGA_ATIVO_DIA = 3
 TENTATIVAS_POR_CICLO = 2
 ESPERA_ENTRE_TENTATIVAS_S = 10.0
 ESPERA_MAXIMA_S = 20.0
@@ -484,8 +486,11 @@ class Painel:
         # par do ano, ETH em dia impar.
         tentativas = {par: [v for v in self._votos(dia, par) if v["vaga"] == vaga.id]
                       for par, (dia, _) in trabalho.items()}
-        par_primeiro = "BTCUSDT" if self.agora.timetuple().tm_yday % 2 == 0 else "ETHUSDT"
-        ordem = sorted(trabalho, key=lambda p: (len(tentativas[p]), p != par_primeiro))
+        # Desempate que roda com o dia do ano: nenhum ativo fica sempre por
+        # ultimo quando o prazo do painel acaba.
+        pares = sorted(trabalho)
+        giro = self.agora.timetuple().tm_yday % max(len(pares), 1)
+        ordem = sorted(trabalho, key=lambda p: (len(tentativas[p]), (pares.index(p) - giro) % len(pares)))
         if vaga.id in self._vagas_paradas:
             return
         for par in ordem:

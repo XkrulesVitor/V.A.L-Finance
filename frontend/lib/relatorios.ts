@@ -8,7 +8,7 @@
  *   andamento, o valor de agora (conta × preço ao vivo).
  * - Começo: o patrimônio do último dia antes da semana. Se a estratégia
  *   começou dentro da semana, o capital inicial (US$ 10.000 por moeda).
- * - Referência: só segurar BTC e ETH, meio a meio, no mesmo período.
+ * - Referência: só segurar as moedas que a carteira tem, em partes iguais.
  *
  * Tudo sai do banco; nenhum número é digitado à mão.
  */
@@ -75,44 +75,49 @@ export async function carregarRelatorios() {
   if (contas.error) throw new Error(`Supabase: ${contas.error.message}`);
   const linhasDeConta = (contas.data ?? []) as Conta[];
 
-  // Patrimônio total (BTC + ETH) por estratégia e dia; preço de fechamento por moeda e dia.
-  const porDia = new Map<string, Map<string, number>>(); // carteira -> dia -> total
-  const partes = new Map<string, number>(); // carteira|dia -> quantas moedas somadas
+  // Patrimônio de cada conta (estratégia × moeda) por dia, e o fechamento
+  // de cada moeda por dia. Por moeda, e não o total: as moedas entraram em
+  // datas diferentes (BTC e ETH em 04/09; XRP, LINK, ADA e DOGE em 25/09), e
+  // uma semana só conta as moedas que já existiam nela.
+  const series = new Map<string, Map<string, Map<string, number>>>(); // carteira -> par -> dia -> valor
   const preco = new Map<string, number>(); // par|dia -> fechamento
   for (const l of diario) {
     const dia = String(l.dia_utc).slice(0, 10);
-    const m = porDia.get(l.carteira) ?? new Map<string, number>();
-    m.set(dia, (m.get(dia) ?? 0) + Number(l.patrimonio));
-    porDia.set(l.carteira, m);
-    partes.set(`${l.carteira}|${dia}`, (partes.get(`${l.carteira}|${dia}`) ?? 0) + 1);
+    const daCarteira = series.get(l.carteira) ?? new Map<string, Map<string, number>>();
+    const doPar = daCarteira.get(l.asset) ?? new Map<string, number>();
+    doPar.set(dia, Number(l.patrimonio));
+    daCarteira.set(l.asset, doPar);
+    series.set(l.carteira, daCarteira);
     preco.set(`${l.asset}|${dia}`, Number(l.preco_fechamento));
   }
-  // Dia com uma moeda só não é um total completo: fica de fora.
-  for (const [cart, m] of porDia) for (const dia of [...m.keys()]) if ((partes.get(`${cart}|${dia}`) ?? 0) < PARES.length) m.delete(dia);
 
-  // Valor de agora, como na página inicial.
-  const agora = new Map<string, number>();
+  // Valor de agora de cada conta, como na página inicial.
+  const agora = new Map<string, number>(); // carteira|par -> valor
+  const totalAgora = new Map<string, number>();
   for (const c of catalogo) {
     let total = 0;
     for (const par of PARES) {
       const k = linhasDeConta.find((x) => x.carteira === c.id && x.asset === par);
       const p = precos.get(par);
       const qtd = k?.quantity ?? 0;
-      total += (k?.caixa ?? CAPITAL_POR_CONTA) + (qtd > 0 && p ? qtd * p : 0);
+      const v = (k?.caixa ?? CAPITAL_POR_CONTA) + (qtd > 0 && p ? qtd * p : 0);
+      agora.set(`${c.id}|${par}`, v);
+      total += v;
     }
-    agora.set(c.id, total);
+    totalAgora.set(c.id, total);
   }
 
   const hoje = paraData(Date.now());
   const semanaAtual = segundaDe(hoje);
   const ativas = catalogo.filter((c) => c.ativa_desde);
-  const primeiroDia = [...porDia.values()].flatMap((m) => [...m.keys()]).sort()[0] ?? hoje;
+  const primeiroDia =
+    [...series.values()].flatMap((m) => [...m.values()].flatMap((d) => [...d.keys()])).sort()[0] ?? hoje;
   const semanas: Semana[] = [];
 
   for (let seg = segundaDe(primeiroDia); seg <= semanaAtual; seg = paraData(ms(seg) + 7 * DIA)) {
     const dom = paraData(ms(seg) + 6 * DIA);
     const emAndamento = seg === semanaAtual;
-    const linhas = ativas.map((c) => linhaDaSemana(c, seg, dom, emAndamento, porDia.get(c.id), agora.get(c.id)!, ops));
+    const linhas = ativas.map((c) => linhaDaSemana(c, seg, dom, emAndamento, series.get(c.id), agora, ops));
     if (linhas.every((l) => l.pct === null)) continue;
     semanas.push({ inicio: seg, fim: dom, emAndamento, linhas, referenciaPct: referencia(seg, dom, emAndamento, preco, precos) });
   }
@@ -120,8 +125,8 @@ export async function carregarRelatorios() {
   const desdeOInicio = ativas.map((c) => ({
     id: c.id,
     nome: c.nome,
-    pct: (agora.get(c.id)! / inicial - 1) * 100,
-    usd: agora.get(c.id)! - inicial,
+    pct: (totalAgora.get(c.id)! / inicial - 1) * 100,
+    usd: totalAgora.get(c.id)! - inicial,
   }));
 
   return { semanas: semanas.reverse(), desdeOInicio };
@@ -132,32 +137,37 @@ function linhaDaSemana(
   seg: string,
   dom: string,
   emAndamento: boolean,
-  dias: Map<string, number> | undefined,
-  valorAgora: number,
+  seriesDaCarteira: Map<string, Map<string, number>> | undefined,
+  agora: Map<string, number>,
   ops: { carteira: string; created_at: string }[]
 ): LinhaDaSemana {
-  const todos = [...(dias?.keys() ?? [])].sort();
-  const antes = todos.filter((d) => d < seg).at(-1);
-  const dentro = todos.filter((d) => d >= seg && d <= dom).at(-1);
-  const comecou = c.ativa_desde ? paraData(Date.parse(c.ativa_desde)) : null;
-
-  const fim = emAndamento ? valorAgora : dentro !== undefined ? dias!.get(dentro)! : null;
-  // Antes da semana, o último fechamento; se começou nela, o capital inicial.
-  const comecouNaSemana = comecou !== null && comecou >= seg && comecou <= dom;
-  const comecoDaSerie = todos[0] !== undefined && todos[0] >= seg && todos[0] <= dom;
-  const inicio = antes !== undefined ? dias!.get(antes)! : comecouNaSemana || comecoDaSerie ? inicial : null;
+  // Soma, moeda a moeda, o começo e o fim da semana:
+  // - começo: o último fechamento antes da semana, ou US$ 10.000 se a moeda
+  //   entrou na carteira dentro dela;
+  // - fim: o último fechamento da semana, ou o valor de agora na semana em
+  //   andamento.
+  // Moeda sem nenhum dado na semana (ainda não existia) fica de fora.
+  let inicio = 0;
+  let fim = 0;
+  let moedas = 0;
+  for (const par of PARES) {
+    const serie = seriesDaCarteira?.get(par);
+    const dias = [...(serie?.keys() ?? [])].sort();
+    const antes = dias.filter((d) => d < seg).at(-1);
+    const dentro = dias.filter((d) => d >= seg && d <= dom).at(-1);
+    const f = emAndamento ? agora.get(`${c.id}|${par}`) : dentro !== undefined ? serie!.get(dentro) : undefined;
+    if (f === undefined) continue;
+    inicio += antes !== undefined ? serie!.get(antes)! : CAPITAL_POR_CONTA;
+    fim += f;
+    moedas += 1;
+  }
 
   const fimMs = ms(dom) + DIA;
   const operacoes = ops.filter(
     (o) => o.carteira === c.id && Date.parse(o.created_at) >= ms(seg) && Date.parse(o.created_at) < fimMs
   ).length;
 
-  // Sem dado na semana (ou antes dela) não há resultado. A data de D0 do
-  // catálogo não entra aqui: a Tendência tem histórico desde 04/09, antes
-  // da troca de regra de 22/09, e a semana dela conta pelo patrimônio.
-  if (fim === null || inicio === null) {
-    return { id: c.id, nome: c.nome, pct: null, usd: null, operacoes };
-  }
+  if (moedas === 0) return { id: c.id, nome: c.nome, pct: null, usd: null, operacoes };
   return { id: c.id, nome: c.nome, pct: (fim / inicio - 1) * 100, usd: fim - inicio, operacoes };
 }
 
@@ -175,9 +185,12 @@ function referencia(
     const dentro = dias.filter((d) => d >= seg && d <= dom).at(-1);
     const p0 = antes !== undefined ? preco.get(`${par}|${antes}`) : undefined;
     const p1 = emAndamento ? (aoVivo.get(par) ?? (dentro ? preco.get(`${par}|${dentro}`) : undefined)) : dentro ? preco.get(`${par}|${dentro}`) : undefined;
-    if (!p0 || !p1) return null;
+    // Moeda que ainda não tinha preço registrado na semana fica de fora
+    // da referência (partes iguais entre as que existiam).
+    if (!p0 || !p1) continue;
     variacoes.push(p1 / p0 - 1);
   }
+  if (!variacoes.length) return null;
   return (variacoes.reduce((a, b) => a + b, 0) / variacoes.length) * 100;
 }
 

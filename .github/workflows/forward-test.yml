@@ -45,7 +45,7 @@ on:
     inputs:
       pares:
         description: "Pares, separados por espaco"
-        default: "BTCUSDT ETHUSDT"
+        default: "BTCUSDT ETHUSDT XRPUSDT LINKUSDT ADAUSDT DOGEUSDT"
       ensaio:
         description: "So mostrar o estado, sem decidir nem gravar"
         type: boolean
@@ -83,5 +83,5 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           python backend/live/rodar.py \
-            --pares ${{ github.event.inputs.pares || 'BTCUSDT ETHUSDT' }} \
+            --pares ${{ github.event.inputs.pares || 'BTCUSDT ETHUSDT XRPUSDT LINKUSDT ADAUSDT DOGEUSDT' }} \
             ${{ github.event.inputs.ensaio == 'true' && '--ensaio' || '' }}

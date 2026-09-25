@@ -35,6 +35,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from brain.provedores import ErroDoProvedor, RespostaBruta  # noqa: E402
 from dubles import UM_DIA, BancoFiltrado, _Consulta, diarios  # noqa: E402
 from live import painel as modulo  # noqa: E402
+
+# O teto real (3 por vaga x ativo com 6 moedas) e conferido em
+# test_teto_real_cabe_na_cota_gratis; os cenarios de cadeia abaixo foram
+# escritos com teto 5 e testam a logica, nao o numero.
+TETO_REAL = modulo.TETO_POR_VAGA_ATIVO_DIA
+modulo.TETO_POR_VAGA_ATIVO_DIA = 5
 from live.mercado import Mercado  # noqa: E402
 from live.painel import (  # noqa: E402
     FEEDS, SISTEMA, VAGAS, Painel, VotoDoPainel, _sha, agregar, buscar_manchetes, compras_do_painel_desde,
@@ -955,6 +961,14 @@ def test_provedores_reais_sem_chave_deixam_o_job_vermelho():
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+def test_teto_real_cabe_na_cota_gratis():
+    # 50 requisicoes :free por dia na conta OpenRouter sem creditos (9.8).
+    import live.rodar as rodar
+    vagas_or = sum(1 for v in VAGAS if v.provedor == "openrouter")
+    pior_caso = vagas_or * len(rodar.PARES_PADRAO) * TETO_REAL
+    assert pior_caso <= 40, f"pior caso {pior_caso} passa de 80% da cota de 50"
 
 
 # ================================================================== prazo

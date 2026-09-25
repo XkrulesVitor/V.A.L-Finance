@@ -1094,6 +1094,32 @@ A especificação veio de uma pesquisa em 5 frentes, sintetizada e revisada por 
 
 **Leitura ao vivo.** Seis carteiras × dois ativos não dizem quem é melhor em meses; para o par T1 × G1 seriam precisos anos. O teste ao vivo confere a fidelidade (cada decisão igual à regra rodada offline) e mostra o comportamento de cada carteira. O retorno é descritivo.
 
+### Seis moedas (25/09/2026)
+
+A pedido do dono, as seis carteiras passaram de 2 para 6 moedas: 3 grandes e 3 menores. O levantamento usou valor de mercado da CoinGecko, volume de 24 h na Binance e histórico diário:
+
+| | Moeda | Valor de mercado | Volume/dia na Binance |
+|---|---|---|---|
+| grandes | BTC, ETH, **XRP** | US$ 1.687 bi, 329 bi, 99 bi | US$ 1,58 bi, 705 mi, 540 mi |
+| menores | **LINK**, **ADA**, **DOGE** | US$ 10,4 bi, 9,6 bi, 15,2 bi | US$ 85 mi, 52 mi, 99 mi |
+
+**Critérios:**
+- estar entre as ~20 maiores por valor de mercado, sem stablecoin, token embrulhado nem token de corretora;
+- ter liquidez alta no par USDT;
+- ter mais de 1.000 dias de candles diários;
+- **estar entre os 8 ativos dos backtests do projeto**, para a evidência medida valer para elas.
+
+**Ficaram de fora:**
+- BNB (token da própria Binance);
+- SOL, que ficou logo atrás da XRP em valor e volume;
+- TRX, ZEC, NEAR e SUI, que não foram testadas.
+
+**Cada moeda nova começa com US$ 10.000 em cada carteira** no primeiro ciclo depois da inclusão. BTC e ETH seguem de onde estavam.
+
+**O painel ficou 3× mais caro em chamadas.** O teto de tentativas caiu de 5 para 3 por vaga × moeda × dia: o pior caso no OpenRouter é 2 × 6 × 3 = 36 requisições, abaixo das 50 grátis por dia. O caso nominal é 12.
+
+**Os relatórios semanais contam moeda a moeda.** Cada semana só inclui as moedas que já existiam nela, e a referência "só segurar" é a média das moedas da carteira em partes iguais.
+
 ## 12. Considerações regulatórias e de risco
 
 **CVM (Brasil):** existe uma distinção entre o robô que o próprio investidor configura e opera só pra si (informalmente chamado de robô "White Box"), que não exige registro na CVM porque quem decide é o dono do dinheiro através do sistema que ele mesmo programou, e o robô que presta consultoria ou gestão pra terceiros, que exige. Este projeto, sendo de uso pessoal, cai no primeiro caso. Se um dia a ideia for oferecer isso pra outras pessoas, essa premissa muda e precisa de orientação jurídica de verdade — nada aqui é aconselhamento jurídico.

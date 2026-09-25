@@ -83,8 +83,9 @@ CARTEIRAS: tuple[Carteira, ...] = (
     ),
     Carteira(
         "G1", "Tendência com meta", "stop_gain", "reguas", True,
-        "Compra como as Réguas, mas vende quando o lucro chega a uma meta (cerca de +9% no BTC e "
-        "+12% no ETH hoje). Depois espera o preço recuar e a alta voltar para comprar de novo.",
+        "Compra como a Tendência, mas vende quando o lucro chega a uma meta (em torno de +10%, "
+        "maior nas moedas que oscilam mais). Depois espera o preço recuar e a alta voltar para "
+        "comprar de novo.",
         "compra como as Reguas (4 de 6 prazos em alta); vende quando o lucro atinge a meta de 3 "
         "vezes a oscilacao diaria, quando a tendencia vira ou se cair 20%; depois da meta, so "
         "recompra quando o preco recuar e a alta voltar",
@@ -103,8 +104,8 @@ CARTEIRAS: tuple[Carteira, ...] = (
     ),
     Carteira(
         "G3", "IAs com meta", "stop_gain", "painel", True,
-        "Compra como o Conselho de IAs, mas vende quando o lucro chega à mesma meta das Réguas "
-        "com meta. Depois só recompra quando o conselho deixar de ver alta e voltar a ver.",
+        "Compra como a carteira IAs, mas vende quando o lucro chega à mesma meta da Tendência "
+        "com meta. Depois só recompra quando as IAs deixarem de ver alta e voltarem a ver.",
         "compra quando o conselho de tres IAs soma +2; vende na meta de 3 vezes a oscilacao "
         "diaria, quando o conselho soma -1 ou menos, ou se cair 20%; depois da meta, so recompra "
         "quando o conselho deixar de ver alta e voltar a ver",
