@@ -8,7 +8,10 @@ export default function NaoEncontrado() {
         <h1 className="text-xl mb-6 text-vale-tinta">Essa página não existe</h1>
         <nav className="flex flex-col gap-2 text-sm">
           <Link href="/" className="text-vale-tinta-2 hover:text-vale-alta transition-colors">
-            → pipeline e indicadores
+            → as seis carteiras
+          </Link>
+          <Link href="/motor" className="text-vale-tinta-2 hover:text-vale-alta transition-colors">
+            → motor: as decisões, ciclo a ciclo
           </Link>
           <Link href="/backtests" className="text-vale-tinta-2 hover:text-vale-alta transition-colors">
             → backtests e cota

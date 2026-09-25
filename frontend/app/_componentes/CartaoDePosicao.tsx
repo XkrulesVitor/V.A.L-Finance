@@ -1,5 +1,6 @@
 import type { Leitura, Posicao } from "@/lib/carteira";
 import { ENTRA_COM, PRAZOS, SAI_COM, sinal, usd } from "@/lib/carteira";
+import type { Resumo } from "@/lib/rotulos";
 import { diaMes } from "@/lib/tempo";
 
 /*
@@ -13,37 +14,53 @@ import { diaMes } from "@/lib/tempo";
  *
  * Fora de posição, o cartão fica curto de propósito: só o preço e o caixa.
  *
- * Desde 22/09 a regra é de tendência e não tem alvo — a saída é a própria
- * tendência virar. O trilho stop→alvo deixa de fazer sentido, e no lugar
- * dele entra a Força: os seis prazos que a regra consulta, acesos quando o
- * preço está acima da média daquele prazo. É a mesma pergunta ("quão perto
- * estou de sair?") respondida com a régua que decide de verdade.
+ * Desde 22/09 a regra da T1 é de tendência e não tem alvo — a saída é a
+ * própria tendência virar. Para ela entra a Força: os seis prazos que a
+ * regra consulta, acesos quando o preço está acima da média daquele prazo.
+ * É a mesma pergunta ("quão perto estou de sair?") respondida com a régua
+ * que decide de verdade.
+ *
+ * Com seis carteiras, o cartão escolhe a régua de cada uma:
+ * - com meta de lucro (G1, G3): o trilho, da proteção até a meta;
+ * - Réguas (T1, G1): a Força;
+ * - as outras (Tartarugas, Repique, Conselho): a leitura da regra em uma
+ *   linha e a distância até a proteção.
+ * Fora de posição, G1 e G3 dizem se estão armadas: depois de vender na
+ * meta, só recompram quando o sinal recuar e voltar.
  */
 
 export function CartaoDePosicao({ p }: { p: Posicao }) {
   const nome = p.par.replace("USDT", "");
 
   if (!p.aberta) {
+    const desarmada = p.armada === false;
     return (
       <div className="flex items-center justify-between gap-4 bg-vale-superficie px-6 py-5">
-        <div>
-          <div className="flex items-baseline gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-[16px] font-medium tracking-[-0.01em] text-vale-tinta">{nome}</span>
             <span className="text-[12px] text-vale-tinta-3">em caixa</span>
+            {p.armada !== null && <Armada armada={p.armada} />}
           </div>
-          {p.tendencia?.votos != null && (
+          {desarmada ? (
+            <div className="mt-2 text-[11.5px] text-vale-tinta-3">
+              vendeu na meta · recompra quando o sinal recuar e voltar
+            </div>
+          ) : p.tendencia?.votos != null ? (
             <div className="mt-2 flex items-center gap-2.5">
               <Pontos leitura={p.tendencia} />
               <span className="num text-[11.5px] text-vale-tinta-3">
                 {p.tendencia.votos} de 6 ·{" "}
                 {p.tendencia.podeEntrar === false && p.tendencia.votos >= ENTRA_COM
-                  ? "espera um dia fechar depois da proteção"
+                  ? "espera um dia fechar depois da última saída"
                   : `entra com ${ENTRA_COM}`}
               </span>
             </div>
+          ) : (
+            p.resumo && <LinhaDeLeitura resumo={p.resumo} className="mt-2" />
           )}
         </div>
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           <div className="num text-[15px] text-vale-tinta-2">{usd(p.caixa)}</div>
           {p.preco !== null && (
             <div className="num mt-0.5 text-[11.5px] text-vale-tinta-3">
@@ -57,6 +74,7 @@ export function CartaoDePosicao({ p }: { p: Posicao }) {
 
   const ganhando = (p.emAberto ?? 0) >= 0;
   const cor = ganhando ? "text-vale-alta" : "text-vale-baixa";
+  const comTrilho = p.stop !== null && p.alvo !== null && p.precoEntrada !== null && p.preco !== null;
 
   return (
     <div className="bg-vale-superficie px-6 pt-6 pb-7">
@@ -89,15 +107,49 @@ export function CartaoDePosicao({ p }: { p: Posicao }) {
         </div>
       </div>
 
-      {p.stop !== null && p.alvo !== null && p.precoEntrada !== null && p.preco !== null && (
-        <Trilho stop={p.stop} alvo={p.alvo} entrada={p.precoEntrada} preco={p.preco} />
+      {comTrilho && (
+        <Trilho
+          stop={p.stop!}
+          alvo={p.alvo!}
+          entrada={p.precoEntrada!}
+          preco={p.preco!}
+          rotuloDoAlvo={p.comMeta ? "meta" : "alvo"}
+        />
       )}
-      {p.alvo === null && p.tendencia?.votos != null && (
-        <Forca leitura={p.tendencia} stop={p.stop} preco={p.preco} />
+      {p.tendencia?.votos != null ? (
+        <Forca leitura={p.tendencia} />
+      ) : (
+        p.resumo && <LinhaDeLeitura resumo={p.resumo} className="mt-6" />
       )}
+      {!comTrilho && <Protecao stop={p.stop} preco={p.preco} />}
       {p.explicacao && (
         <p className="mt-5 max-w-[60ch] text-[12.5px] leading-relaxed text-vale-tinta-3">{p.explicacao}</p>
       )}
+    </div>
+  );
+}
+
+function Armada({ armada }: { armada: boolean }) {
+  return (
+    <span
+      className={`rounded-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] ${
+        armada ? "bg-vale-elevado text-vale-tinta-2" : "border border-vale-fio-forte text-vale-tinta-3"
+      }`}
+      title={
+        armada
+          ? "pode comprar no próximo sinal de entrada"
+          : "vendeu na meta: espera o sinal recuar e voltar antes de comprar de novo"
+      }
+    >
+      {armada ? "armada" : "desarmada"}
+    </span>
+  );
+}
+
+function LinhaDeLeitura({ resumo, className = "" }: { resumo: Resumo; className?: string }) {
+  return (
+    <div className={`num text-[11.5px] text-vale-tinta-3 ${className}`}>
+      <span className="text-vale-tinta-2">{resumo.valor}</span> · {resumo.nota}
     </div>
   );
 }
@@ -107,11 +159,13 @@ function Trilho({
   alvo,
   entrada,
   preco,
+  rotuloDoAlvo,
 }: {
   stop: number;
   alvo: number;
   entrada: number;
   preco: number;
+  rotuloDoAlvo: string;
 }) {
   const faixa = alvo - stop;
   const pos = (v: number) => Math.min(100, Math.max(0, ((v - stop) / faixa) * 100));
@@ -120,10 +174,11 @@ function Trilho({
   const acima = preco >= entrada;
   const distStop = ((preco - stop) / preco) * 100;
   const distAlvo = ((alvo - preco) / preco) * 100;
+  const alvoPct = (alvo / entrada - 1) * 100;
 
   return (
     <div className="mt-7" role="img"
-      aria-label={`Preço ${usd(preco)}: ${distStop.toFixed(1)}% acima do stop de ${usd(stop)} e ${distAlvo.toFixed(1)}% abaixo do alvo de ${usd(alvo)}.`}>
+      aria-label={`Preço ${usd(preco)}: ${distStop.toFixed(1)}% acima da proteção de ${usd(stop)} e ${distAlvo.toFixed(1)}% abaixo da ${rotuloDoAlvo} de ${usd(alvo)}.`}>
       <div className="relative h-8">
         {/* rótulo do preço de agora, sobre o marcador */}
         <div
@@ -162,16 +217,19 @@ function Trilho({
           entrada <span className="text-vale-tinta-2">{usd(entrada)}</span>
         </span>
         <span className="text-right">
-          alvo <span className="text-vale-tinta-2">{usd(alvo)}</span>
+          {rotuloDoAlvo} <span className="text-vale-tinta-2">{usd(alvo)}</span>
+          <span className="ml-1">
+            {sinal(alvoPct)}
+            {Math.abs(alvoPct).toFixed(1)}%
+          </span>
         </span>
       </div>
     </div>
   );
 }
 
-function Forca({ leitura, stop, preco }: { leitura: Leitura; stop: number | null; preco: number | null }) {
+function Forca({ leitura }: { leitura: Leitura }) {
   const v = leitura.votos ?? 0;
-  const distStop = stop !== null && preco !== null ? ((preco - stop) / preco) * 100 : null;
 
   return (
     <div className="mt-7">
@@ -198,19 +256,26 @@ function Forca({ leitura, stop, preco }: { leitura: Leitura; stop: number | null
           );
         })}
       </div>
+    </div>
+  );
+}
 
-      {distStop !== null && stop !== null && distStop >= 0 && (
-        <div className="num mt-3 text-[11px] text-vale-tinta-3">
-          proteção em <span className="text-vale-tinta-2">{usd(stop)}</span> · {distStop.toFixed(1)}% abaixo
-        </div>
-      )}
-      {distStop !== null && stop !== null && distStop < 0 && (
-        // O stop só é conferido em fechamentos de 1h (é o que o estudo mede),
-        // então o preço ao vivo pode passar dele antes da venda.
-        <div className="num mt-3 text-[11px] text-vale-baixa">
-          preço abaixo da proteção de {usd(stop)} · a venda sai no próximo fechamento de hora abaixo dela
-        </div>
-      )}
+/** Distância até o stop, para as posições sem trilho. */
+function Protecao({ stop, preco }: { stop: number | null; preco: number | null }) {
+  if (stop === null || preco === null) return null;
+  const dist = ((preco - stop) / preco) * 100;
+  if (dist >= 0) {
+    return (
+      <div className="num mt-3 text-[11px] text-vale-tinta-3">
+        proteção em <span className="text-vale-tinta-2">{usd(stop)}</span> · {dist.toFixed(1)}% abaixo
+      </div>
+    );
+  }
+  // O stop só é conferido em fechamentos de 1h (é o que o estudo mede),
+  // então o preço ao vivo pode passar dele antes da venda.
+  return (
+    <div className="num mt-3 text-[11px] text-vale-baixa">
+      preço abaixo da proteção de {usd(stop)} · a venda sai no próximo fechamento de hora abaixo dela
     </div>
   );
 }

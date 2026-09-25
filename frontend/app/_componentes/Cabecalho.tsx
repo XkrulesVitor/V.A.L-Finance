@@ -2,14 +2,16 @@ import Link from "next/link";
 import { Assinatura } from "./Marca";
 
 /*
- * Cabeçalho. Uma linha, 64px, três destinos.
+ * Cabeçalho. Uma linha, 64px, quatro destinos.
  *
  * Os slugs não mudaram na remodelagem — memória muscular e link salvo
- * valem mais que consistência de nomenclatura.
+ * valem mais que consistência de nomenclatura. "/" virou "Carteiras" (no
+ * plural) quando o forward test passou a ter seis; a página de cada uma
+ * (`/carteira/T1`…) acende o mesmo item.
  */
 
 const DESTINOS = [
-  { href: "/", rotulo: "Carteira" },
+  { href: "/", rotulo: "Carteiras" },
   { href: "/motor", rotulo: "Motor" },
   { href: "/backtests", rotulo: "Evidência" },
   { href: "/regimes", rotulo: "Regimes" },

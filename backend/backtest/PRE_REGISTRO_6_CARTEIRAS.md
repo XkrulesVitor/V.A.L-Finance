@@ -12,6 +12,8 @@
 > 2. **Sem o eco semanal (9.8).** A detecção de troca silenciosa de modelo fica para uma versão seguinte. O modelo que respondeu de fato continua gravado em cada voto (`modelo_efetivo`).
 > 3. **A trava de reentrada da T1** passa a ler `portfolio.ultima_saida_em` (qualquer motivo), como as outras 5 carteiras, em vez de consultar só as saídas por stop de catástrofe em `decisions`. É equivalente, como a própria 2.5.5 registra: sair com ≤ 2 e voltar com ≥ 4 já exige um dia novo.
 > 4. **O D0 da T1 continua 22/09/2026.** A curva dela é reindexada no D0 das outras só para comparar (13.1).
+> 5. **Sem a checagem diária da validade da chave do OpenRouter (9.8).** Registrado em 25/09/2026, antes de qualquer operação das carteiras novas. Um 401 (chave inválida ou vencida) já deixa o job vermelho. A renovação antes de 23/03/2027 fica como lembrete manual.
+> 6. **`painel_veredito.ciclo_congelamento` fica nulo (9.6.7).** O `motivo_congelamento` e o `congelado_em` são gravados; o número do ciclo do dia, não.
 
 ---
 

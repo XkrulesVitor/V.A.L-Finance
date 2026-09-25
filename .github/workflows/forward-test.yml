@@ -1,4 +1,4 @@
-name: Forward test (passo 8a)
+name: Forward test (6 carteiras)
 
 # A estrategia decidindo ao vivo, com preenchimento simulado ao preco
 # real de mercado. Nao envia ordem pra corretora nenhuma.
@@ -14,11 +14,18 @@ name: Forward test (passo 8a)
 # interpretacao conveniente, entao ele nao se mexe.
 #
 # TROCA DE ESTRATEGIA EM 2026-09-22 (decidida em 2026-09-19): de la pra ca quem decide e a regra
-# de tendencia diaria (`--estrategia tendencia`, o padrao do rodar.py),
-# sem LLM na decisao -- ele so escreve a explicacao de cada operacao, por
-# isso a chave continua aqui. As contas seguiram de onde estavam. Criterio
-# de leitura da nova fase: ARCHITECTURE.md, secao 11, "Troca do motor ao
-# vivo". Pra voltar a hibrida: `--estrategia hibrida` no comando abaixo.
+# de tendencia diaria, sem LLM na decisao. Criterio de leitura: ARCHITECTURE.md,
+# secao 11, "Troca do motor ao vivo".
+#
+# SEIS CARTEIRAS (setembro/2026): o mesmo job roda T1 Reguas, T2 Tartarugas,
+# T3 Conselho de IAs, G1 Reguas com meta, G2 Repique e G3 Conselho com meta
+# (backend/live/carteiras.py; pre-registro em
+# backend/backtest/PRE_REGISTRO_6_CARTEIRAS.md). 100% GRATUITO:
+# - o painel de IAs usa o Gemini direto (cota gratis; o projeto do Google NAO
+#   pode ter conta de faturamento) e modelos ":free" do OpenRouter -- o codigo
+#   recusa id sem ":free";
+# - ANTHROPIC_API_KEY e LLM_PROVEDOR SAIRAM daqui de proposito: o provedor
+#   "claude" e pago, e o explicador agora pede o Gemini pelo nome.
 #
 # Aos :10 e nao aos :05 pra nao concorrer com o workflow de coleta --
 # duas execucoes simultaneas gravando na mesma tabela nao quebrariam
@@ -47,6 +54,8 @@ on:
 jobs:
   ciclo:
     runs-on: ubuntu-latest
+    # O rodar.py tem prazo proprio de 13 min (o painel para aos 11): o job
+    # nunca e morto no meio de uma escrita.
     timeout-minutes: 15
     # Impede que dois ciclos rodem ao mesmo tempo. O indice unico ja
     # garante que o mesmo candle nao seja decidido duas vezes, mas
@@ -64,15 +73,14 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r backend/requirements.txt
 
-      # Sem chave da Binance: o ciclo so le dados publicos. A chave do
-      # LLM entra aqui porque o cerebro e consultado de verdade.
+      # Sem chave da Binance: o ciclo so le dados publicos. As chaves de IA
+      # sao as do painel (Gemini + OpenRouter) e do explicador (Gemini).
       - name: Rodar o ciclo
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          LLM_PROVEDOR: ${{ vars.LLM_PROVEDOR }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           python backend/live/rodar.py \
             --pares ${{ github.event.inputs.pares || 'BTCUSDT ETHUSDT' }} \

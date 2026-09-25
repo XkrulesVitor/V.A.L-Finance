@@ -60,6 +60,11 @@ from risk.risk_engine import ParametrosDeRisco, avaliar_risco
 
 CANDLES_A_PEDIR = CANDLES_NECESSARIOS + 1
 
+# A hibrida operou as contas que hoje sao da carteira T1 (04/09 a 21/09).
+# Ela nao roda mais (ver rodar.py); o codigo fica para o historico continuar
+# reproduzivel.
+CARTEIRA_HIBRIDA = "T1"
+
 
 class ResultadoDoCiclo:
     """O que aconteceu num ciclo, pra log e pra teste."""
@@ -106,16 +111,16 @@ def rodar_ciclo(
 
     # Lido ANTES de reivindicar: a reivindicacao insere o candle atual e
     # passaria a ser ela mesma a resposta desta consulta.
-    processado_ate = ultimo_candle_processado(supabase, par)
+    processado_ate = ultimo_candle_processado(supabase, CARTEIRA_HIBRIDA, par)
 
     # ---------- idempotencia, antes de decidir qualquer coisa ----------
     try:
-        id_decisao = reivindicar_candle(supabase, par, ultimo_fechado["fechamento_em"])
+        id_decisao = reivindicar_candle(supabase, CARTEIRA_HIBRIDA, par, ultimo_fechado["fechamento_em"])
     except CandleJaProcessado:
         return ResultadoDoCiclo(par, "JA_PROCESSADO", "candle ja decidido")
 
     preco_atual = binance.buscar_preco(par)
-    conta = carregar_conta(supabase, par)
+    conta = carregar_conta(supabase, CARTEIRA_HIBRIDA, par)
     posicao = conta.como_estado_de_posicao()
     capital = conta.capital_total(preco_atual)
 
@@ -157,7 +162,7 @@ def rodar_ciclo(
 
     # ---------- ETAPA 2: e hora de consultar o cerebro? ----------
     agora_ms = ultimo_fechado["fechamento_em"]
-    if not deve_consultar(agora_ms, ultima_consulta_ms(supabase, par), intervalo_ms):
+    if not deve_consultar(agora_ms, ultima_consulta_ms(supabase, CARTEIRA_HIBRIDA, par), intervalo_ms):
         acao = HOLD if posicao.aberta else NO_TRADE
         concluir_decisao(supabase, id_decisao, {
             **registro, "status": "no_trade" if acao == NO_TRADE else "hold",

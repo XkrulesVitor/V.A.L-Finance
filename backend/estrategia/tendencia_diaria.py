@@ -4,7 +4,7 @@ Ensemble de tendencia diaria -- o nucleo de decisao do V.A.L a partir de
 
 Um unico lugar define a regra, e dois lugares a usam: o estudo de backtest
 (`backtest/estudo_tendencia_diaria.py`) e o ciclo ao vivo
-(`live/ciclo_tendencia.py`). E o principio que o projeto segue desde o
+(`live/ciclo_carteira.py`, carteiras T1 e G1). E o principio que o projeto segue desde o
 passo 5: a estrategia medida tem que ser a estrategia que opera. Duas
 implementacoes viram dois sistemas, e o numero do backtest deixa de
 prever o do ao vivo.

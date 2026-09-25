@@ -1,22 +1,17 @@
 import { Fragment } from "react";
 import type { Operacao } from "@/lib/carteira";
 import { sinal, usd } from "@/lib/carteira";
+import { motivoDeSaida } from "@/lib/rotulos";
 import { dataHora } from "@/lib/tempo";
 
 /*
  * Operações fechadas: cada linha é uma ida e volta completa — entrou,
  * saiu, quanto rendeu. É o extrato que interessa ao dono do dinheiro;
  * o log ciclo a ciclo do sistema mora na página Motor.
+ *
+ * O motivo da saída vem em código ("stop gain", "stop 2N"…) e aparece em
+ * português leigo (`lib/rotulos.ts`).
  */
-
-const MOTIVO: Record<string, string> = {
-  "stop-loss rompido": "stop",
-  "alvo atingido": "alvo",
-  "tese de saida": "decisão",
-  "nivel rompido": "stop",
-  "tendencia virou": "tendência",
-  "stop de catastrofe": "proteção",
-};
 
 function duracao(ini: string, fim: string) {
   const h = Math.round((new Date(fim).getTime() - new Date(ini).getTime()) / 3_600_000);
@@ -67,7 +62,7 @@ export function HistoricoDeOperacoes({ operacoes }: { operacoes: Operacao[] }) {
                   {duracao(o.entradaEm, o.saidaEm)}
                 </td>
                 <td className="px-3 py-3.5 text-[12.5px] text-vale-tinta-3">
-                  {MOTIVO[o.motivo] ?? o.motivo}
+                  {motivoDeSaida(o.motivo)}
                 </td>
                 <td className={`num px-5 py-3.5 text-right text-[13.5px] ${cor}`}>
                   {sinal(o.resultado)}

@@ -419,6 +419,7 @@ Duas pastas do backtest ficam fora do git (`.gitignore`): `backend/backtest/.cac
 6. ✅ **Risk Engine** — calcular stop-loss/take-profit via ATR e validar a tese antes de qualquer ordem.
 7. ⚠️ **Backtest da estratégia híbrida** — comparar contra a baseline do passo 4. *Construído e testado; rodado sobre 91 dias, não sobre o ano — a cota do Gemini (500/dia) não permitiu. **A híbrida perdeu para as duas baselines** no recorte (seção 11).*
 8. ⚙️ **Forward test (8a)** — rodando desde 04/09/2026 com preenchimento simulado ao preço real. De 04/09 a 21/09 com a híbrida; **desde 22/09 com a regra de tendência diária** (seção 11). A testnet (8b) segue adiada.
+   **Seis carteiras** rodando juntas a partir do deploy de setembro/2026 (seção 11, "Seis carteiras ao mesmo tempo").
 9. 🔲 **Dashboard completo** — carteira, decisões com raciocínio, performance ao longo do tempo.
 10. 🔲 **Avaliar expansão** — outro mercado (B3/internacional), ou considerar dinheiro real.
 
@@ -1017,6 +1018,81 @@ Seis achados foram refutados. Entre eles, a diferença de uma hora entre o voto 
 2. **Deslize** contra o backtest: `order_result.referencia_backtest` de cada operação da regra. O `deslize_pct` do `market_snapshot` (contra a abertura da hora em curso) fica gravado, mas não mede a regra diária.
 3. **Retorno não se lê no forward test antes de 6 meses, e mesmo então fraco.** A regra faz ~3 operações por trimestre por ativo, e com dois ativos são ~12 idas e voltas em 6 meses. Isso não distingue vantagem de sorte. O juízo sobre o retorno vem dos testes em vários períodos, offline. Ao vivo, o resultado é comparado ao b&h de mesma exposição de BTC/ETH no mesmo período só como checagem de sanidade: ele deve cair dentro da dispersão das janelas do backtest.
 4. **Regra de adoção:** bater o b&h de mesma exposição (fração fixa) em pelo menos **2 de 3 períodos** de 2 anos. Combinada quando estava em 1 de 2; o terceiro período (2020–22) foi rodado depois e ganhou. Não há registro versionado anterior ao resultado (ver o estudo 2). Resultado: **2 de 3, passa**, com as ressalvas do estudo 2 acima. O próximo teste é dimensionar a posição pela volatilidade (alvo de volatilidade no lugar do all-in), medido contra esta mesma régua e registrado antes de rodar.
+
+### Seis carteiras ao mesmo tempo (pré-registro em 25/09/2026)
+
+O dono pediu para deixar de testar uma estratégia de cada vez e comparar várias ao mesmo tempo. Ele pediu três carteiras que seguem tendência e três com "stop gain" (vender ao atingir X% de lucro), com um painel de várias IAs entre elas, tudo 100% gratuito. A regra que já estava no ar (as Réguas) ficou como está.
+
+A especificação veio de uma pesquisa em 5 frentes, sintetizada e revisada por duas críticas independentes. O texto completo, com todas as regras, a regra de leitura e os desvios, está em `backend/backtest/PRE_REGISTRO_6_CARTEIRAS.md`, versionado **sozinho** num commit anterior ao backtest confirmatório.
+
+| Id | Nome | Família | Entrada | Saída |
+|---|---|---|---|---|
+| T1 | Réguas | tendência | ≥ 4 de 6 médias abaixo do preço | ≤ 2 de 6; stop de −20% |
+| T2 | Tartarugas (Turtle, Sistema 2) | tendência | fecha acima do maior fechamento dos 55 dias anteriores | fecha abaixo do menor dos 20 dias anteriores; stop 2N (piso −20%) |
+| T3 | Conselho de IAs | tendência | soma dos votos ≥ +2 | soma ≤ −1; stop de −20% |
+| G1 | Réguas com meta | stop gain | igual à T1, se armada | meta de 3×ATR14, ou a saída da T1; rearme depois da meta |
+| G2 | Repique (RSI 2 de Connors) | curto prazo | acima da média de 200 dias e RSI(2) < 10 | fecha acima da média de 5 dias; stop de −20% |
+| G3 | Conselho com meta | stop gain | igual à T3, se armada | meta de 3×ATR14, ou a saída da T3; rearme depois da meta |
+
+**Um ciclo, seis carteiras.** O código é o mesmo para todas (`live/ciclo_carteira.py`):
+
+- Os candles e o preço são buscados uma vez por par (`live/mercado.py`), e todas as carteiras decidem sobre o mesmo instantâneo.
+- Cada carteira × par reivindica o próprio candle. A chave de idempotência passou a ser `(carteira, symbol, candle)`.
+- A varredura de stop e meta roda antes de qualquer IA.
+- Toda saída grava dois preços: o fechamento que cruzou o nível (`preco`, o mesmo do backtest) e o ticker do instante (`preco_executavel`).
+- A regra de cada família fica em `estrategia/` e é compartilhada com o backtest; `live/regras.py` só traduz.
+- A T1 não mudou de comportamento. Os testes que protegiam o ciclo antigo foram portados para `tests/test_carteiras.py`.
+
+**O painel (T3 e G3), gratuito** (`live/painel.py`):
+
+- Três vagas de famílias diferentes:
+  - Google: Gemini direto, com o Gemma como reserva;
+  - NVIDIA: Nemotron, pelo OpenRouter `:free`;
+  - laboratórios chineses: dots, Qwen e GLM, pelo OpenRouter `:free`.
+- Uma consulta por ativo por dia, sobre uma entrada congelada: retornos, distância das médias, volatilidade, Fear & Greed, ETH/BTC e manchetes do dia.
+- A agregação é a soma com pesos iguais, com quórum de 2 e histerese. T3 e G3 leem **o mesmo** veredito.
+- Cada tentativa é gravada antes da requisição (`painel_votos`), e o veredito tem linha própria (`painel_veredito`).
+- **Não existe GPT nem Gemini gratuito no OpenRouter.** O provedor recusa qualquer id sem `:free`.
+- No primeiro teste real (24/09), o Gemini estava sobrecarregado (503) e o Gemma respondeu no lugar, em 56 s. O Nemotron e o dots responderam em 14 s. Os três votaram UP para o BTC.
+
+**Migração em duas etapas** (`supabase/schema.sql`):
+
+- A etapa A só acrescenta colunas e tabelas, convive com o código antigo e foi aplicada em 24/09.
+- A etapa B troca a chave de `portfolio` para `(carteira, asset)` e remove o índice antigo. Ela só roda depois do deploy do código novo.
+- Entre as duas, a T1 funciona. As carteiras novas falham alto, porque `reivindicar_candle` detecta o índice antigo e não finge "já processado".
+
+**Backtest confirmatório** (T1, T2, G1 e G2; relatório completo em `backend/backtest/RELATORIO_CARTEIRAS.md`). Foram 24 blocos de 91 dias em 3 períodos, sobre o contínuo recortado nas janelas, com Holm sobre 4 hipóteses:
+
+| Pergunta | Resposta pela régua pré-registrada | Δ médio por janela (log) | Mediana |
+|---|---|---|---|
+| T2 bate o b&h de mesmo risco? | sem evidência de vantagem (p = 0,053; Holm 0,21) | +3,71 | +5,88 |
+| G2 bate o b&h de mesmo risco? | sem evidência de vantagem | −2,10 | +0,18 |
+| O stop gain muda o resultado (G1 × T1)? | inconclusivo | −13,88 | −0,31 |
+| G2 difere da T1? | inconclusivo | −11,72 | +1,00 |
+
+- **O stop gain custa as grandes altas:** −82 pontos percentuais em média nas 71 janelas de alta, contra +5 a +6 nas laterais e de baixa. Na janela típica, a diferença é quase zero.
+- **O teste tinha muito menos poder do que a especificação supunha:** o erro-padrão foi 6,95 pt por bloco, contra 1,04 suposto. Com ele, só um efeito acima de ~23 pts por janela seria detectável.
+- **Conferências:** a T1 do harness reproduz o `efeito_stop_catastrofe.py` com diferença máxima de 0,0000 pt, e o harness sem as correções reproduz as 848 células dos logs exploratórios.
+- **Divergência de hash registrada no relatório:** `estrategia/alvo.py` foi alterado depois do hash do pré-registro. A única mudança foi acrescentar `DIAS_MINIMOS = 150` ao `atr_pct` (a correção 16.4-3), feita nesta sessão, com uma única edição.
+
+**Desvios de implementação**, registrados no cabeçalho do pré-registro antes de qualquer operação das carteiras novas:
+
+- sem a semana de sombra: a primeira semana vira "semana de observação", com os mesmos critérios;
+- sem o eco semanal;
+- a trava da T1 passa a ler `portfolio.ultima_saida_em`, o que é equivalente;
+- o D0 da T1 continua 22/09;
+- sem a checagem diária da validade da chave do OpenRouter;
+- `ciclo_congelamento` do painel fica nulo.
+
+**Revisão adversarial antes de ir ao ar (25/09).** Três revisores (ciclo, painel e site), com um cético por achado, confirmaram 18 problemas, e os 18 foram corrigidos com teste de regressão e checagem por mutação. Os que importavam:
+- **Painel mudo com job verde:** com o secret `OPENROUTER_API_KEY` ausente, o provedor tratava a chave vazia como falha passageira, e o painel ficava calado com o job verde. Agora é erro de configuração: o job fica vermelho e o OpenRouter para até a virada do dia.
+- **Prazo total por requisição de IA:** o timeout do httpx e do SDK do Google é por leitura, e uma resposta que chega aos pingos passava do prazo do painel.
+- **Patrimônio do dia:** era gravado antes da varredura de stop e meta, e o dia aparecia "comprado" mesmo quando o stop já tinha vendido nele.
+- **Varredura antes da entrada:** ela olhava fechamentos anteriores à compra depois de uma decisão órfã.
+- **Registro errado depois de falha:** uma falha em concluir a decisão depois de a conta mudar marcava "não operou".
+- **Site:** um erro passageiro do Supabase ficava 5 min em cache como página de erro; e a saída por stop ou meta mostrava a hora do ciclo, não a do gatilho.
+
+**Leitura ao vivo.** Seis carteiras × dois ativos não dizem quem é melhor em meses; para o par T1 × G1 seriam precisos anos. O teste ao vivo confere a fidelidade (cada decisão igual à regra rodada offline) e mostra o comportamento de cada carteira. O retorno é descritivo.
 
 ## 12. Considerações regulatórias e de risco
 

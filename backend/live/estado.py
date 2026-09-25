@@ -41,6 +41,14 @@ num `upsert` unico. O Postgres garante atomicidade por linha, entao ou
 tudo entra ou nada entra. Em duas escritas o buraco existiria, e com o
 processo morrendo a cada hora ele seria alcancado.
 
+## Varias carteiras (setembro/2026)
+
+Desde as seis carteiras, cada conta e (carteira, par) e cada decisao leva
+a carteira. Toda funcao daqui recebe `carteira` como parametro OBRIGATORIO,
+sem default no Python: o default 'T1' fica so no banco, para as linhas
+antigas. Um esquecimento no codigo novo nao pode gravar como T1 em
+silencio.
+
 ## Idempotencia
 
 A chave e o candle fechado que gerou a decisao: para um par, cada candle
@@ -73,7 +81,9 @@ CAPITAL_INICIAL_PADRAO = 10_000.0
 # e sem ela, e o caixa chegaria aqui como "nao definido" em vez de virar
 # erro.
 COLUNAS_DA_CONTA = (
-    "asset", "quantity", "caixa", "preco_entrada", "stop_loss", "take_profit",
+    "carteira", "asset", "quantity", "caixa", "preco_entrada", "stop_loss", "take_profit",
+    "alvo_pct", "meta_entrada", "armado", "recuo_dia", "ultima_saida_em",
+    "ultima_saida_motivo", "entrada_em",
 )
 
 # Status da linha de `decisions` entre a reivindicacao e a conclusao. Uma
@@ -120,6 +130,17 @@ class ContaSimulada:
     preco_entrada: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
+    # Vazia so em contas montadas fora do banco (testes de aritmetica);
+    # `salvar_conta` recusa gravar sem ela.
+    carteira: str = ""
+    # Estado que a regra precisa lembrar entre ciclos (ver schema.sql).
+    alvo_pct: float | None = None
+    meta_entrada: dict | None = None
+    armado: bool = True
+    recuo_dia: str | None = None
+    ultima_saida_em: int | None = None
+    ultima_saida_motivo: str | None = None
+    entrada_em: int | None = None
 
     @property
     def posicionada(self) -> bool:
@@ -139,7 +160,7 @@ class ContaSimulada:
 
 
 def carregar_conta(
-    supabase, par: str, capital_inicial: float = CAPITAL_INICIAL_PADRAO
+    supabase, carteira: str, par: str, capital_inicial: float = CAPITAL_INICIAL_PADRAO
 ) -> ContaSimulada:
     """
     Le a conta de um par.
@@ -153,6 +174,7 @@ def carregar_conta(
         resposta = (
             supabase.table(TABELA_PORTFOLIO)
             .select(",".join(COLUNAS_DA_CONTA))
+            .eq("carteira", carteira)
             .eq("asset", par)
             .limit(1)
             .execute()
@@ -165,14 +187,21 @@ def carregar_conta(
             ) from erro
         raise ErroDeEstado(f"falha ao ler a conta de {par}: {erro}") from erro
 
-    linhas = resposta.data or []
+    # Filtro repetido no Python: se a consulta vier sem o filtro aplicado
+    # (duble de teste, ou um PostgREST que ignore um parametro), a conta de
+    # outra carteira nunca pode ser lida como desta.
+    linhas = [
+        linha for linha in (resposta.data or [])
+        if linha.get("asset") == par and linha.get("carteira", carteira) == carteira
+    ]
     if not linhas:
-        return ContaSimulada(par=par, caixa=capital_inicial)
+        return ContaSimulada(par=par, caixa=capital_inicial, carteira=carteira)
 
     linha = linhas[0]
     caixa = linha.get("caixa")
     return ContaSimulada(
         par=par,
+        carteira=carteira,
         # `caixa` nulo numa linha que existe = linha criada antes do passo
         # 8a (so tinha quantidade). Tratar como capital inicial seria
         # inventar dinheiro; tratar como zero seria inventar prejuizo.
@@ -182,6 +211,13 @@ def carregar_conta(
         preco_entrada=_opcional(linha.get("preco_entrada")),
         stop_loss=_opcional(linha.get("stop_loss")),
         take_profit=_opcional(linha.get("take_profit")),
+        alvo_pct=_opcional(linha.get("alvo_pct")),
+        meta_entrada=linha.get("meta_entrada"),
+        armado=linha.get("armado", True) is not False,
+        recuo_dia=linha.get("recuo_dia"),
+        ultima_saida_em=_inteiro(linha.get("ultima_saida_em")),
+        ultima_saida_motivo=linha.get("ultima_saida_motivo"),
+        entrada_em=_inteiro(linha.get("entrada_em")),
     )
 
 
@@ -193,6 +229,8 @@ def salvar_conta(supabase, conta: ContaSimulada) -> None:
     que nunca exista uma posicao registrada sem o stop que a protege, nem
     uma compra registrada sem o caixa debitado.
     """
+    if not conta.carteira:
+        raise ErroDeEstado(f"recusando gravar a conta de {conta.par} sem carteira")
     if conta.quantidade > 0 and conta.stop_loss is None:
         # Guarda de sanidade, nao paranoia: uma posicao sem stop e
         # invisivel pra regra 1 do Risk Engine. Se isso chegar aqui, o
@@ -203,16 +241,24 @@ def salvar_conta(supabase, conta: ContaSimulada) -> None:
         )
 
     registro = {
+        "carteira": conta.carteira,
         "asset": conta.par,
         "quantity": conta.quantidade,
         "caixa": conta.caixa,
         "preco_entrada": conta.preco_entrada,
         "stop_loss": conta.stop_loss,
         "take_profit": conta.take_profit,
+        "alvo_pct": conta.alvo_pct,
+        "meta_entrada": conta.meta_entrada,
+        "armado": conta.armado,
+        "recuo_dia": conta.recuo_dia,
+        "ultima_saida_em": conta.ultima_saida_em,
+        "ultima_saida_motivo": conta.ultima_saida_motivo,
+        "entrada_em": conta.entrada_em,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        supabase.table(TABELA_PORTFOLIO).upsert(registro, on_conflict="asset").execute()
+        supabase.table(TABELA_PORTFOLIO).upsert(registro, on_conflict="carteira,asset").execute()
     except Exception as erro:  # noqa: BLE001
         if _e_coluna_ausente(erro):
             raise ErroDeEstado(
@@ -222,7 +268,7 @@ def salvar_conta(supabase, conta: ContaSimulada) -> None:
         raise ErroDeEstado(f"falha ao gravar a conta de {conta.par}: {erro}") from erro
 
 
-def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
+def reivindicar_candle(supabase, carteira: str, par: str, fechamento_em: int) -> str:
     """
     Reivindica o direito de decidir sobre este candle, e devolve o id da
     linha criada.
@@ -234,8 +280,17 @@ def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
     Reivindicar antes e nao depois e o que fecha a janela de corrida:
     duas execucoes simultaneas nao podem as duas achar que o candle esta
     livre, porque quem decide e o banco, no momento da escrita.
+
+    ## A guarda do indice antigo
+
+    Enquanto o indice antigo `(symbol, candle)` existir (etapa B da migracao
+    ainda nao aplicada), a T1 reivindica o candle e as outras cinco carteiras
+    levariam 23505 -- e, tratadas como "ja processado", ficariam paradas em
+    US$ 10.000 com o job verde. Por isso, depois de um 23505, confere se a
+    linha que existe e da MESMA carteira. Se nao for, e erro alto.
     """
     registro = {
+        "carteira": carteira,
         "symbol": par,
         "candle_fechamento_em": fechamento_em,
         "status": STATUS_RESERVADO,
@@ -244,9 +299,15 @@ def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
         resposta = supabase.table(TABELA_DECISOES).insert(registro).execute()
     except Exception as erro:  # noqa: BLE001
         if _e_duplicada(erro):
-            raise CandleJaProcessado(
-                f"o candle {fechamento_em} de {par} ja foi reivindicado "
-                f"por outra execucao"
+            if _existe_reivindicacao(supabase, carteira, par, fechamento_em):
+                raise CandleJaProcessado(
+                    f"o candle {fechamento_em} de {carteira}/{par} ja foi "
+                    f"reivindicado por outra execucao"
+                ) from erro
+            raise ErroDeEstado(
+                f"23505 ao reivindicar {carteira}/{par} sem linha da mesma "
+                f"carteira: o indice antigo (symbol, candle) ainda esta ativo. "
+                f"Aplique a etapa B de supabase/schema.sql."
             ) from erro
         if _e_coluna_ausente(erro):
             raise ErroDeEstado(
@@ -259,6 +320,24 @@ def reivindicar_candle(supabase, par: str, fechamento_em: int) -> str:
     if not linhas:
         raise ErroDeEstado(f"insercao de decisao para {par} nao devolveu id")
     return linhas[0]["id"]
+
+
+def _existe_reivindicacao(supabase, carteira, par, fechamento_em) -> bool:
+    resposta = (
+        supabase.table(TABELA_DECISOES)
+        .select("carteira,symbol,candle_fechamento_em")
+        .eq("carteira", carteira)
+        .eq("symbol", par)
+        .eq("candle_fechamento_em", fechamento_em)
+        .limit(1)
+        .execute()
+    )
+    return any(
+        linha.get("carteira", carteira) == carteira
+        and linha.get("symbol") == par
+        and linha.get("candle_fechamento_em") == fechamento_em
+        for linha in (resposta.data or [])
+    )
 
 
 def concluir_decisao(supabase, id_decisao: str, campos: dict) -> None:
@@ -282,7 +361,7 @@ def concluir_decisao(supabase, id_decisao: str, campos: dict) -> None:
             _esperar(tentativa)
 
 
-def ultimo_candle_processado(supabase, par: str) -> int | None:
+def ultimo_candle_processado(supabase, carteira: str, par: str) -> int | None:
     """
     O candle mais recente que ja foi decidido para este par.
 
@@ -302,6 +381,7 @@ def ultimo_candle_processado(supabase, par: str) -> int | None:
         resposta = (
             supabase.table(TABELA_DECISOES)
             .select("candle_fechamento_em")
+            .eq("carteira", carteira)
             .eq("symbol", par)
             .not_.is_("candle_fechamento_em", "null")
             # Reivindicacao orfa nao conta como processada. Se contasse, o
@@ -330,7 +410,7 @@ def ultimo_candle_processado(supabase, par: str) -> int | None:
     return int(linhas[0]["candle_fechamento_em"])
 
 
-def ultima_consulta_ms(supabase, par: str) -> int | None:
+def ultima_consulta_ms(supabase, carteira: str, par: str) -> int | None:
     """
     Quando o cerebro foi consultado pela ultima vez para este par.
 
@@ -346,6 +426,7 @@ def ultima_consulta_ms(supabase, par: str) -> int | None:
         resposta = (
             supabase.table(TABELA_DECISOES)
             .select("candle_fechamento_em,created_at")
+            .eq("carteira", carteira)
             .eq("symbol", par)
             .not_.is_("llm_output", "null")
             .order("created_at", desc=True)
@@ -381,49 +462,6 @@ def ultima_consulta_ms(supabase, par: str) -> int | None:
     )
 
 
-def ultima_saida_ms(supabase, par: str, motivo: str) -> int | None:
-    """
-    Quando este par saiu da posicao pela ultima vez POR `motivo`.
-
-    Existe para a regra de tendencia nao recomprar na hora seguinte a um
-    stop de catastrofe usando o mesmo voto que mandou comprar
-    (`estrategia.tendencia_diaria.voto_vale_para_entrada`).
-
-    O filtro por motivo nao e detalhe. Sem ele, qualquer venda travava a
-    reentrada -- inclusive as da estrategia hibrida, que nao tem nada a ver
-    com a regra: uma saida da hibrida no mesmo dia UTC da entrada no ar
-    seguraria a primeira compra da regra ate o dia seguinte, e o ao vivo
-    deixaria de fazer o que o backtest faz. Para a saida normal da propria
-    regra a trava nao muda nada (sair com 2 e voltar com 4 ja exige um dia
-    novo), entao so o stop precisa ser consultado.
-
-    Usa o `gatilho_em` gravado na venda -- o fechamento que furou o stop --
-    e cai no candle reivindicado se ele faltar.
-    """
-    try:
-        resposta = (
-            supabase.table(TABELA_DECISOES)
-            .select("candle_fechamento_em,order_result")
-            .eq("symbol", par)
-            .eq("status", "executed")
-            .eq("order_result->>lado", "SELL")
-            .eq("order_result->>motivo", motivo)
-            .order("candle_fechamento_em", desc=True)
-            .limit(1)
-            .execute()
-        )
-    except Exception as erro:  # noqa: BLE001
-        raise ErroDeEstado(f"falha ao ler a ultima saida de {par}: {erro}") from erro
-
-    for linha in resposta.data or []:
-        ordem = linha.get("order_result") or {}
-        if ordem.get("lado") != "SELL" or ordem.get("motivo") != motivo:
-            continue
-        quando = ordem.get("gatilho_em") or linha.get("candle_fechamento_em")
-        return int(quando) if quando is not None else None
-    return None
-
-
 def _exigir_caixa(valor, par: str) -> float:
     if valor is None:
         raise ErroDeEstado(
@@ -433,6 +471,10 @@ def _exigir_caixa(valor, par: str) -> float:
             f"assumir um valor aqui inventaria dinheiro ou prejuizo."
         )
     return float(valor)
+
+
+def _inteiro(valor):
+    return None if valor is None else int(valor)
 
 
 def _opcional(valor):

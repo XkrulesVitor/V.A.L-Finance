@@ -1,7 +1,8 @@
 /**
- * As paginas sao Server Components que consultam o Supabase a cada request
- * (revalidate = 0). Sem este estado, o navegador fica em branco durante a
- * consulta -- indistinguivel de uma pagina quebrada.
+ * As paginas sao Server Components que consultam o Supabase (as carteiras
+ * a cada 5 minutos, `revalidate = 300`; o Motor a cada visita). Sem este
+ * estado, o navegador fica em branco durante a consulta -- indistinguivel
+ * de uma pagina quebrada.
  */
 export default function Carregando() {
   return (

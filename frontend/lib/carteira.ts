@@ -1,9 +1,13 @@
 /**
- * Dados da carteira do forward test, compartilhados pela página Carteira
- * e pela página Motor.
+ * Dados de UMA carteira: contas, operações, posições e curva.
  *
- * Tudo aqui deriva do banco (tabelas `decisions` e `portfolio`) e do preço
- * público da Binance. Nenhum número é escrito à mão.
+ * Tudo aqui deriva do banco (`portfolio`, `decisions`, `patrimonio_diario`)
+ * e do preço público da Binance. Nenhum número é escrito à mão.
+ *
+ * Desde setembro/2026 são seis carteiras (T1…G3), cada uma com uma conta
+ * de US$ 10.000 por ativo. Toda consulta a `portfolio` e `decisions` leva
+ * `.eq("carteira", id)`: sem isso, a conta de uma carteira seria somada à
+ * de outra sem erro nenhum.
  *
  * ## A conta fecha
  *
@@ -18,54 +22,44 @@
  */
 
 import { getSupabaseClient } from "@/lib/supabase";
+import type { Resumo } from "@/lib/rotulos";
+import { resumirLeitura } from "@/lib/rotulos";
 
 export const CAPITAL_POR_CONTA = 10_000;
+/** Taxa por lado, a mesma de `backend/live/execucao.py`. */
+export const TAXA = 0.001;
+export const PARES = ["BTCUSDT", "ETHUSDT"];
 
 /**
- * Dia em que o motor trocou a estratégia híbrida (LLM decide) pela regra de
- * tendência diária (LLM só explica). Ver ARCHITECTURE.md. As contas não
- * foram zeradas: o histórico antes desta data é da estratégia antiga.
+ * Instante em que a T1 trocou a estratégia híbrida (LLM decidia) pela regra
+ * de tendência (LLM só explica). As contas não foram zeradas: o histórico
+ * da T1 antes disto é da estratégia antiga.
  */
-export const TENDENCIA_DESDE = "2026-09-22";
+export const ERA_DAS_REGRAS = "2026-09-22T14:47:47Z";
 export const PRAZOS = [10, 20, 30, 50, 70, 100] as const;
 export const ENTRA_COM = 4;
 export const SAI_COM = 2;
 
-/** O que a regra de tendência viu no último dia fechado. */
+type Cliente = ReturnType<typeof getSupabaseClient>;
+
+/** O que a régua das Réguas (T1, G1) viu no último dia fechado. */
 export type Leitura = {
   votos: number | null;
   dia: string | null;
   prazos: Record<string, { media: number; acima: boolean }>;
   /**
-   * `false` depois de um stop de catástrofe, até fechar um dia novo: a
-   * regra não entra nem com votos suficientes. Ausente em leituras antigas.
+   * `false` depois de uma saída, até fechar um dia novo: a regra não entra
+   * nem com votos suficientes. Ausente em leituras antigas.
    */
   podeEntrar: boolean | null;
   em: string;
 };
 
+/** Uma decisão que virou ordem (status `executed`). */
 export type Decisao = {
   id: string;
   created_at: string;
   symbol: string;
-  status: string;
-  candle_fechamento_em: number | null;
-  /** Só nas decisões da regra de tendência: quantos prazos em alta. */
-  votos?: number | null;
-  estrategia?: string | null;
-  market_snapshot: {
-    preco_atual: number;
-    conta?: { caixa: number; quantidade: number };
-    deslize_pct?: number | null;
-  } | null;
-  llm_output: { direction: string; horizon: string; confidence: number; reasoning: string } | null;
-  risk_result: {
-    acao_final: string;
-    aprovado?: boolean;
-    override_do_llm?: boolean;
-    motivo: string;
-    direcao_do_llm?: string | null;
-  } | null;
   order_result: {
     lado: string;
     preco: number;
@@ -78,19 +72,35 @@ export type Decisao = {
     resultado_pct?: number | null;
     motivo?: string | null;
     explicacao?: string | null;
+    /** Fechamento de 1h que cruzou o stop/meta (ms, termina em ...999). */
+    gatilho_em?: number | null;
     preco_entrada?: number | null;
-    /** Onde o backtest executaria (regra de tendência). Ver live/ciclo_tendencia.py. */
-    referencia_backtest?: { em: number; preco: number | null; deslize_pct: number | null } | null;
+    alvo_pct?: number | null;
   } | null;
 };
 
 export type Conta = {
+  carteira: string;
   asset: string;
   quantity: number;
   caixa: number | null;
   preco_entrada: number | null;
   stop_loss: number | null;
   take_profit: number | null;
+  alvo_pct: number | null;
+  armado: boolean | null;
+  entrada_em: number | null;
+  ultima_saida_motivo: string | null;
+};
+
+export const COLUNAS_DA_CONTA =
+  "carteira, asset, quantity, caixa, preco_entrada, stop_loss, take_profit, alvo_pct, armado, entrada_em, ultima_saida_motivo";
+
+/** A última decisão concluída de uma carteira × par: o que a regra viu. */
+export type UltimaLeitura = {
+  created_at: string;
+  features: Record<string, unknown> | null;
+  preco: number | null;
 };
 
 export type Operacao = {
@@ -119,84 +129,159 @@ export type Posicao = {
   stop: number | null;
   alvo: number | null;
   abertaEm: string | null;
+  /** Só nas Réguas (T1, G1): os seis prazos. */
   tendencia: Leitura | null;
+  /** A leitura da regra em uma linha, para as outras carteiras. */
+  resumo: Resumo | null;
+  /** G1 e G3: a carteira tem meta de lucro. */
+  comMeta: boolean;
+  /**
+   * G1 e G3: `false` depois de vender na meta, até o sinal recuar e voltar.
+   * `null` nas outras carteiras e antes do primeiro ciclo.
+   */
+  armada: boolean | null;
   /** A frase do LLM sobre a compra, quando houver. */
   explicacao: string | null;
 };
 
+/* ------------------------------------------------------------- leituras */
+
 /*
  * O PostgREST do Supabase devolve no máximo 1000 linhas por consulta (Max
- * rows, padrão do projeto). Com ciclos de hora em hora isso chega em
- * semanas, e uma consulta crescente sem paginação passaria a devolver as
- * 1000 linhas MAIS ANTIGAS: a página congelaria no passado sem erro
- * nenhum. Então a leitura é paginada até vir uma página incompleta.
+ * rows, padrão do projeto). Uma consulta crescente sem paginação passaria
+ * a devolver as 1000 linhas MAIS ANTIGAS: a página congelaria no passado
+ * sem erro nenhum. Então toda leitura que cresce com o tempo é paginada
+ * até vir uma página incompleta.
  */
 const PAGINA = 1000;
 
-async function todosOsCiclos(sb: ReturnType<typeof getSupabaseClient>): Promise<Decisao[]> {
-  const saida: Decisao[] = [];
-  for (let inicio = 0; ; inicio += PAGINA) {
-    const { data, error } = await sb
-      .from("decisions")
-      .select(
-        // `votos` e `estrategia` saem de dentro de `features` sem trazer o
-        // resto: nas linhas da estratégia antiga `features` tem ~20
-        // indicadores, e a página não usa nenhum.
-        "id, created_at, symbol, status, candle_fechamento_em, votos:features->votos, estrategia:features->>estrategia, market_snapshot, llm_output, risk_result, order_result"
-      )
-      .not("candle_fechamento_em", "is", null)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true }) // desempate estável entre páginas
-      .range(inicio, inicio + PAGINA - 1);
+type Pagina<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+export async function paginar<T>(pedir: (de: number, ate: number) => unknown): Promise<T[]> {
+  const saida: T[] = [];
+  for (let de = 0; ; de += PAGINA) {
+    const { data, error } = await (pedir(de, de + PAGINA - 1) as Pagina<T>);
     if (error) throw new Error(`Supabase: ${error.message}`);
-    saida.push(...((data ?? []) as Decisao[]));
+    saida.push(...(data ?? []));
     if (!data || data.length < PAGINA) return saida;
   }
 }
 
-export async function carregar() {
-  const sb = getSupabaseClient();
-  const [ciclos, contas, coleta, leituras] = await Promise.all([
-    todosOsCiclos(sb),
-    sb.from("portfolio").select("asset, quantity, caixa, preco_entrada, stop_loss, take_profit"),
+/** Só as ordens executadas da carteira, com as colunas que a página usa. */
+function executadas(sb: Cliente, carteira: string) {
+  return paginar<Decisao>((de, ate) =>
     sb
       .from("decisions")
-      .select("created_at")
-      .is("candle_fechamento_em", null)
-      .order("created_at", { ascending: false })
-      .limit(1),
+      .select("id, created_at, symbol, order_result")
+      .eq("carteira", carteira)
+      .eq("status", "executed")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }) // desempate estável entre páginas
+      .range(de, ate)
+  );
+}
+
+export type LinhaDiaria = { asset: string; dia_utc: string; patrimonio: number; posicionada?: boolean };
+
+/** Patrimônio de cada conta no fechamento de cada dia UTC. */
+function diarioDa(sb: Cliente, carteira: string) {
+  return paginar<LinhaDiaria>((de, ate) =>
     sb
+      .from("patrimonio_diario")
+      .select("asset, dia_utc, patrimonio")
+      .eq("carteira", carteira)
+      .order("dia_utc", { ascending: true })
+      .order("asset", { ascending: true })
+      .range(de, ate)
+  );
+}
+
+type CicloDaCurva = {
+  created_at: string;
+  symbol: string;
+  preco: number | null;
+  conta: { caixa: number; quantidade: number } | null;
+};
+
+/**
+ * Os ciclos da carteira, só com o preço e a conta de cada um — o que a
+ * curva por ciclos precisa. `ate` corta no instante em que a curva diária
+ * assume, e isso deixa a leitura de tamanho fixo.
+ */
+function ciclosDaCurva(sb: Cliente, carteira: string, ate?: string) {
+  return paginar<CicloDaCurva>((de, fim) => {
+    let q = sb
       .from("decisions")
-      .select("symbol, created_at, features")
-      .eq("features->>estrategia", "tendencia_diaria")
-      .order("created_at", { ascending: false })
-      .limit(20),
-  ]);
+      .select("created_at, symbol, preco:market_snapshot->preco_atual, conta:market_snapshot->conta")
+      .eq("carteira", carteira)
+      .not("candle_fechamento_em", "is", null);
+    if (ate) q = q.lt("created_at", ate);
+    return q.order("created_at", { ascending: true }).order("id", { ascending: true }).range(de, fim);
+  });
+}
 
-  if (contas.error) throw new Error(`Supabase: ${contas.error.message}`);
+export async function ultimaLeitura(sb: Cliente, carteira: string, par: string): Promise<UltimaLeitura | null> {
+  const { data, error } = await sb
+    .from("decisions")
+    .select("created_at, features, preco:market_snapshot->preco_atual")
+    .eq("carteira", carteira)
+    .eq("symbol", par)
+    .not("candle_fechamento_em", "is", null)
+    .neq("status", "processando")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return ((data ?? [])[0] as UltimaLeitura | undefined) ?? null;
+}
 
-  // A leitura mais recente de cada par. Falhar aqui não derruba a página:
-  // sem ela o cartão só não mostra a força da tendência.
-  const tendencia = new Map<string, Leitura>();
-  type LinhaDeLeitura = { symbol: string; created_at: string; features: Record<string, unknown> | null };
-  for (const l of (leituras.data ?? []) as LinhaDeLeitura[]) {
-    if (tendencia.has(l.symbol) || !l.features) continue;
-    tendencia.set(l.symbol, {
-      votos: (l.features.votos as number | null) ?? null,
-      dia: (l.features.dia as string | null) ?? null,
-      prazos: (l.features.prazos as Leitura["prazos"]) ?? {},
-      podeEntrar: typeof l.features.pode_entrar === "boolean" ? l.features.pode_entrar : null,
-      em: l.created_at,
-    });
-  }
-
+/** A leitura das Réguas, quando a linha é das Réguas (votos é um número). */
+export function leituraDasReguas(u: UltimaLeitura | null): Leitura | null {
+  const f = u?.features;
+  if (!f || typeof f.votos !== "number") return null;
   return {
-    ciclos,
-    contas: (contas.data ?? []) as Conta[],
-    ultimaColeta: (coleta.data?.[0]?.created_at as string | undefined) ?? null,
-    tendencia,
+    votos: f.votos,
+    dia: typeof f.dia === "string" ? f.dia : null,
+    prazos: (f.prazos as Leitura["prazos"]) ?? {},
+    podeEntrar: typeof f.pode_entrar === "boolean" ? f.pode_entrar : null,
+    em: u!.created_at,
   };
 }
+
+/**
+ * Tudo o que a página de uma carteira mostra.
+ *
+ * A curva prefere `patrimonio_diario` (uma linha por conta por dia). Os
+ * ciclos só entram para o trecho ANTERIOR à primeira linha diária — a
+ * história da T1 desde 04/09 — e, enquanto houver menos de dois dias
+ * gravados, como a curva inteira.
+ */
+export async function carregarCarteira(carteira: string) {
+  const sb = getSupabaseClient();
+  const [contas, ordens, diario, ...ultimas] = await Promise.all([
+    sb.from("portfolio").select(COLUNAS_DA_CONTA).eq("carteira", carteira),
+    executadas(sb, carteira),
+    diarioDa(sb, carteira),
+    ...PARES.map((p) => ultimaLeitura(sb, carteira, p)),
+  ]);
+  if (contas.error) throw new Error(`Supabase: ${contas.error.message}`);
+
+  const dias = [...new Set(diario.map((d) => d.dia_utc))];
+  const ciclos =
+    dias.length >= 2
+      ? await ciclosDaCurva(sb, carteira, fimDoDia(dias[0]))
+      : await ciclosDaCurva(sb, carteira);
+
+  const leituras = new Map<string, UltimaLeitura | null>(PARES.map((p, i) => [p, ultimas[i]]));
+  return {
+    contas: (contas.data ?? []) as Conta[],
+    ordens,
+    diario,
+    ciclos,
+    leituras,
+  };
+}
+
+/* ------------------------------------------------------------- preço */
 
 /**
  * Preço ao vivo pelo endpoint público da Binance.
@@ -206,6 +291,10 @@ export async function carregar() {
  * de horas atrás engana. `data-api.binance.vision` é o mesmo endpoint que
  * o backend usa: sem credencial e sem bloqueio geográfico para os EUA, onde
  * as funções da Vercel rodam.
+ *
+ * Guardado por 5 minutos, o mesmo `revalidate` das páginas: um `no-store`
+ * aqui tornaria a página dinâmica, e cada visita voltaria a consultar o
+ * Supabase — exatamente o tráfego que a seção 11.3 da especificação corta.
  *
  * Se falhar, devolve vazio e a página cai no preço do último ciclo —
  * dizendo que caiu.
@@ -217,7 +306,7 @@ export async function precosAoVivo(pares: string[]): Promise<Map<string, number>
     const url =
       "https://data-api.binance.vision/api/v3/ticker/price?symbols=" +
       encodeURIComponent(JSON.stringify(pares));
-    const resp = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(3500) });
+    const resp = await fetch(url, { next: { revalidate: 300 }, signal: AbortSignal.timeout(3500) });
     if (!resp.ok) return saida;
     const dados = (await resp.json()) as { symbol: string; price: string }[];
     for (const d of dados) saida.set(d.symbol, Number(d.price));
@@ -227,11 +316,13 @@ export async function precosAoVivo(pares: string[]): Promise<Map<string, number>
   return saida;
 }
 
+/* ------------------------------------------------------------- montagem */
+
 /** Pares de BUY → SELL, na ordem em que aconteceram, por ativo. */
-export function montarOperacoes(ciclos: Decisao[]): Operacao[] {
+export function montarOperacoes(ordens: Decisao[]): Operacao[] {
   const abertas = new Map<string, Decisao>();
   const saida: Operacao[] = [];
-  for (const c of ciclos) {
+  for (const c of ordens) {
     const o = c.order_result;
     if (!o) continue;
     if (o.lado === "BUY") {
@@ -255,7 +346,9 @@ export function montarOperacoes(ciclos: Decisao[]): Operacao[] {
       saida.push({
         par: c.symbol,
         entradaEm: ent?.created_at ?? c.created_at,
-        saidaEm: c.created_at,
+        // Saída por stop/meta aconteceu no fechamento que cruzou o nível,
+        // não na hora do ciclo que a percebeu (até ~6 h depois).
+        saidaEm: o.gatilho_em != null ? new Date(o.gatilho_em + 1).toISOString() : c.created_at,
         precoEntrada,
         precoSaida: o.preco,
         resultado,
@@ -268,13 +361,14 @@ export function montarOperacoes(ciclos: Decisao[]): Operacao[] {
   return saida.reverse();
 }
 
-/** Estado de cada ativo negociado, marcado a mercado pelo preço dado. */
+/** Estado de cada ativo da carteira, marcado a mercado pelo preço dado. */
 export function montarPosicoes(
   pares: string[],
   contas: Conta[],
-  ciclos: Decisao[],
+  ordens: Decisao[],
   preco: Map<string, number>,
-  tendencia: Map<string, Leitura> = new Map()
+  leituras: Map<string, UltimaLeitura | null> = new Map(),
+  { comMeta = false, iniciada = true }: { comMeta?: boolean; iniciada?: boolean } = {}
 ): Posicao[] {
   return pares.map((par) => {
     const conta = contas.find((c) => c.asset === par);
@@ -292,9 +386,7 @@ export function montarPosicoes(
       // última compra encontrada seria a anterior, já vendida, e o custo sairia
       // errado. Só vale como compra desta posição se for BUY ao preço de
       // entrada que a conta guarda; senão, cai no preço de entrada da conta.
-      const compra = [...ciclos]
-        .reverse()
-        .find((c) => c.symbol === par && c.order_result);
+      const compra = [...ordens].reverse().find((c) => c.symbol === par && c.order_result);
       const candidata = compra?.order_result;
       const bate =
         candidata?.lado === "BUY" &&
@@ -306,12 +398,13 @@ export function montarPosicoes(
         abertaEm = compra!.created_at;
         explicacao = o.explicacao ?? null;
       } else if (conta?.preco_entrada) {
-        custo = conta.preco_entrada * quantidade;
+        custo = custoDaEntrada(conta.preco_entrada, quantidade);
       }
     }
 
     const valor = aberta && p !== null ? quantidade * p : 0;
     const emAberto = aberta && custo !== null && p !== null ? valor - custo : null;
+    const leitura = leituras.get(par) ?? null;
 
     return {
       par,
@@ -327,23 +420,34 @@ export function montarPosicoes(
       stop: conta?.stop_loss ?? null,
       alvo: conta?.take_profit ?? null,
       abertaEm,
-      tendencia: tendencia.get(par) ?? null,
+      tendencia: leituraDasReguas(leitura),
+      resumo: resumirLeitura(leitura?.features, aberta),
+      comMeta,
+      // Carteira que ainda não rodou não está armada nem desarmada: só espera.
+      armada: comMeta && (conta || iniciada) ? (conta?.armado ?? true) : null,
       explicacao,
     };
   });
 }
 
+/**
+ * O que saiu do caixa para abrir a posição. A compra usa o caixa inteiro
+ * (`live/execucao.py`): quantidade = caixa × (1 − taxa) / preço, então o
+ * caixa gasto é quantidade × preço / (1 − taxa). Exato, sem a linha da compra.
+ */
+export function custoDaEntrada(precoEntrada: number, quantidade: number) {
+  return (precoEntrada * quantidade) / (1 - TAXA);
+}
+
 export type PontoCurva = { t: string; equity: number };
 
 /** Patrimônio total por ciclo, somando as contas de cada par. */
-export function montarCurva(ciclos: Decisao[], pares: string[]): PontoCurva[] {
+function curvaPorCiclos(ciclos: CicloDaCurva[], pares: string[]): PontoCurva[] {
   const ultimo = new Map<string, number>(pares.map((p) => [p, CAPITAL_POR_CONTA]));
   const saida: PontoCurva[] = [];
   for (const c of ciclos) {
-    const ms = c.market_snapshot;
-    const conta = ms?.conta;
-    if (!ms || !conta) continue;
-    ultimo.set(c.symbol, (conta.caixa ?? 0) + (conta.quantidade ?? 0) * ms.preco_atual);
+    if (c.preco == null || !c.conta) continue;
+    ultimo.set(c.symbol, (c.conta.caixa ?? 0) + (c.conta.quantidade ?? 0) * c.preco);
     let total = 0;
     for (const p of pares) total += ultimo.get(p) ?? CAPITAL_POR_CONTA;
     saida.push({ t: c.created_at, equity: total });
@@ -351,10 +455,58 @@ export function montarCurva(ciclos: Decisao[], pares: string[]): PontoCurva[] {
   return saida;
 }
 
+/** Um ponto por dia UTC: o último de cada dia. */
+function umPorDia(pontos: PontoCurva[]): PontoCurva[] {
+  const porDia = new Map<string, PontoCurva>();
+  for (const p of pontos) porDia.set(new Date(p.t).toISOString().slice(0, 10), p);
+  return [...porDia.values()];
+}
+
+const DIA_MS = 86_400_000;
+
+/** Fim do dia UTC `aaaa-mm-dd`, como instante ISO (início do dia seguinte). */
+export function fimDoDia(dia: string) {
+  return new Date(Date.parse(`${dia.slice(0, 10)}T00:00:00Z`) + DIA_MS).toISOString();
+}
+
+/** Patrimônio total por dia, somando as contas; conta sem linha repete a anterior. */
+export function curvaDiaria(linhas: LinhaDiaria[], pares: string[]): PontoCurva[] {
+  const porDia = new Map<string, Map<string, number>>();
+  for (const l of linhas) {
+    const dia = l.dia_utc.slice(0, 10);
+    if (!porDia.has(dia)) porDia.set(dia, new Map());
+    porDia.get(dia)!.set(l.asset, Number(l.patrimonio));
+  }
+  const ultimo = new Map<string, number>(pares.map((p) => [p, CAPITAL_POR_CONTA]));
+  return [...porDia.keys()].sort().map((dia) => {
+    for (const [par, v] of porDia.get(dia)!) ultimo.set(par, v);
+    let total = 0;
+    for (const p of pares) total += ultimo.get(p) ?? CAPITAL_POR_CONTA;
+    // o fechamento do dia UTC, que é o instante que a linha avalia
+    return { t: `${dia}T23:59:59Z`, equity: total };
+  });
+}
+
+/**
+ * A curva da página da carteira: o histórico por ciclos até a primeira
+ * linha diária (reduzido a um ponto por dia, para a escala do tempo não
+ * mudar no meio do gráfico) e, dali em diante, `patrimonio_diario`.
+ * Com menos de dois dias gravados, a curva por ciclos inteira.
+ */
+export function montarCurva(ciclos: CicloDaCurva[], diario: LinhaDiaria[], pares: string[]): PontoCurva[] {
+  const diaria = curvaDiaria(diario, pares);
+  if (diaria.length < 2) return curvaPorCiclos(ciclos, pares);
+  const primeiroDia = diaria[0].t.slice(0, 10);
+  const antes = umPorDia(curvaPorCiclos(ciclos, pares)).filter(
+    (p) => new Date(p.t).toISOString().slice(0, 10) < primeiroDia
+  );
+  return [...antes, ...diaria];
+}
+
 /** Último preço gravado por par — o recurso quando não há preço ao vivo. */
-export function precosDoUltimoCiclo(ciclos: Decisao[]): Map<string, number> {
+export function precosDasLeituras(leituras: Map<string, UltimaLeitura | null>): Map<string, number> {
   const m = new Map<string, number>();
-  for (const c of ciclos) if (c.market_snapshot) m.set(c.symbol, c.market_snapshot.preco_atual);
+  for (const [par, u] of leituras) if (typeof u?.preco === "number") m.set(par, u.preco);
   return m;
 }
 

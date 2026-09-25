@@ -33,6 +33,7 @@ from brain.provedores import (  # noqa: E402
     ErroDoProvedor,
     ProvedorClaude,
     ProvedorGemini,
+    ProvedorOpenRouter,
     criar_provedor,
 )
 
@@ -211,8 +212,106 @@ def test_sem_chave_estoura_so_ao_usar_o_cliente():
     raise AssertionError("deveria ter estourado por falta de chave")
 
 
-def test_os_dois_provedores_estao_registrados():
-    assert set(PROVEDORES) == {"gemini", "claude"}
+def test_os_provedores_estao_registrados():
+    assert set(PROVEDORES) == {"gemini", "claude", "openrouter"}
+
+
+# --------------------------------------------------------------------
+# OpenRouter
+# --------------------------------------------------------------------
+
+
+class RespostaHttpFalsa:
+    def __init__(self, status, corpo):
+        self.status_code = status
+        self._corpo = corpo
+        self.text = json.dumps(corpo)
+
+    def json(self):
+        return self._corpo
+
+
+class ClienteHttpFalso:
+    """Devolve as respostas na ordem; grava cada corpo enviado."""
+
+    def __init__(self, *respostas):
+        self.respostas = list(respostas)
+        self.enviados = []
+
+    def post(self, url, json=None):
+        self.enviados.append(json)
+        return self.respostas.pop(0)
+
+
+def _ok(conteudo, modelo="nvidia/nemotron-3-super-120b-a12b:free"):
+    return RespostaHttpFalsa(200, {"model": modelo, "choices": [{"message": {"content": conteudo}}]})
+
+
+TESE_JSON = json.dumps({"direction": "BUY", "horizon": "medio", "confidence": 0.6, "reasoning": "x"})
+
+
+def test_openrouter_devolve_tese_validada_e_quem_respondeu():
+    cliente = ClienteHttpFalso(_ok(TESE_JSON, modelo="qwen/qwen3.8-27b:free"))
+    provedor = ProvedorOpenRouter(cliente=cliente, reservas=["qwen/qwen3.8-27b:free"])
+    assert provedor.gerar("s", "p", TeseDeOperacao).direction == "BUY"
+    assert provedor.ultimo_modelo == "qwen/qwen3.8-27b:free", "auditoria: quem respondeu de fato"
+    enviado = cliente.enviados[0]
+    assert enviado["models"] == ["nvidia/nemotron-3-super-120b-a12b:free", "qwen/qwen3.8-27b:free"]
+    assert "JSON Schema" in enviado["messages"][0]["content"]
+
+
+def test_openrouter_recorta_json_embrulhado():
+    cliente = ClienteHttpFalso(_ok("Claro! ```json\n" + TESE_JSON + "\n```"))
+    assert ProvedorOpenRouter(cliente=cliente).gerar("s", "p", TeseDeOperacao).direction == "BUY"
+
+
+def test_openrouter_tenta_de_novo_em_429():
+    esperas = []
+    cliente = ClienteHttpFalso(RespostaHttpFalsa(429, {"error": "rate-limited upstream"}), _ok(TESE_JSON))
+    provedor = ProvedorOpenRouter(cliente=cliente, esperar=esperas.append)
+    assert provedor.gerar("s", "p", TeseDeOperacao).direction == "BUY"
+    assert len(cliente.enviados) == 2 and esperas == [ProvedorOpenRouter.ESPERA_S]
+
+
+def test_openrouter_desiste_depois_das_tentativas():
+    cliente = ClienteHttpFalso(*[RespostaHttpFalsa(429, {"error": "x"})] * ProvedorOpenRouter.TENTATIVAS)
+    provedor = ProvedorOpenRouter(cliente=cliente, esperar=lambda s: None)
+    try:
+        provedor.gerar("s", "p", TeseDeOperacao)
+    except ErroDoProvedor as erro:
+        assert "tentativas" in str(erro)
+        return
+    raise AssertionError("429 persistente deveria estourar")
+
+
+def test_openrouter_erro_de_cliente_nao_tenta_de_novo():
+    cliente = ClienteHttpFalso(RespostaHttpFalsa(401, {"error": "chave invalida"}))
+    try:
+        ProvedorOpenRouter(cliente=cliente, esperar=lambda s: None).gerar("s", "p", TeseDeOperacao)
+    except ErroDoProvedor:
+        assert len(cliente.enviados) == 1
+        return
+    raise AssertionError("401 deveria estourar")
+
+
+def test_openrouter_resposta_fora_do_contrato_estoura():
+    cliente = ClienteHttpFalso(_ok('{"direction": "TALVEZ"}'))
+    try:
+        ProvedorOpenRouter(cliente=cliente).gerar("s", "p", TeseDeOperacao)
+    except ErroDoProvedor:
+        return
+    raise AssertionError("fora do contrato deveria estourar")
+
+
+def test_openrouter_recusa_modelo_pago():
+    # O projeto e 100% gratuito: um id sem ':free' nao pode virar cobranca.
+    for pago in ({"modelo": "openai/gpt-4o"}, {"reservas": ["google/gemini-2.5-flash"]}):
+        try:
+            ProvedorOpenRouter(cliente=object(), **pago)
+        except ErroDoProvedor as erro:
+            assert "gratuito" in str(erro)
+            continue
+        raise AssertionError(f"modelo pago deveria ser recusado: {pago}")
 
 
 # --------------------------------------------------------------------

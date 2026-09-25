@@ -94,6 +94,9 @@ class ConsultaDuble:
         if op == "select":
             return RespostaDuble(self.banco.linhas.get(self.tabela, []))
         if self.banco.erro_de_escrita:
+            if "23505" in self.banco.erro_de_escrita and op == "insert":
+                # a linha duplicada ja existe: visivel para a conferencia
+                self.banco.linhas.setdefault(self.tabela, []).append(dict(self._registro))
             raise RuntimeError(self.banco.erro_de_escrita)
         self.banco.escritas.append((self.tabela, op, self._registro))
         if op == "insert":
@@ -115,7 +118,7 @@ class SupabaseDuble:
 # ------------------------------------------------------------- leitura
 
 def test_conta_nova_comeca_com_capital_inicial():
-    conta = carregar_conta(SupabaseDuble(), "BTCUSDT")
+    conta = carregar_conta(SupabaseDuble(), "T1", "BTCUSDT")
     assert conta.caixa == CAPITAL_INICIAL_PADRAO
     assert conta.quantidade == 0.0
     assert not conta.posicionada
@@ -126,7 +129,7 @@ def test_conta_existente_volta_inteira():
         "asset": "BTCUSDT", "quantity": 0.05, "caixa": 5000.0,
         "preco_entrada": 80000.0, "stop_loss": 78000.0, "take_profit": 84000.0,
     }]})
-    conta = carregar_conta(banco, "BTCUSDT")
+    conta = carregar_conta(banco, "T1", "BTCUSDT")
     assert conta.quantidade == 0.05
     assert conta.caixa == 5000.0
     assert conta.stop_loss == 78000.0
@@ -139,7 +142,7 @@ def test_falha_de_leitura_nao_vira_conta_vazia():
     # da posicao que existe de verdade.
     banco = SupabaseDuble(erro_de_leitura="conexao caiu")
     try:
-        carregar_conta(banco, "BTCUSDT")
+        carregar_conta(banco, "T1", "BTCUSDT")
     except ErroDeEstado:
         pass
     else:
@@ -155,7 +158,7 @@ def test_linha_antiga_sem_caixa_e_recusada():
         "preco_entrada": None, "stop_loss": None, "take_profit": None,
     }]})
     try:
-        carregar_conta(banco, "BTCUSDT")
+        carregar_conta(banco, "T1", "BTCUSDT")
     except ErroDeEstado as erro:
         assert "caixa" in str(erro)
     else:
@@ -165,7 +168,7 @@ def test_linha_antiga_sem_caixa_e_recusada():
 def test_coluna_ausente_diz_para_rodar_o_schema():
     banco = SupabaseDuble(erro_de_leitura="42703 column caixa does not exist")
     try:
-        carregar_conta(banco, "BTCUSDT")
+        carregar_conta(banco, "T1", "BTCUSDT")
     except ErroDeEstado as erro:
         assert "schema.sql" in str(erro)
     else:
@@ -179,6 +182,7 @@ def test_conta_e_gravada_numa_escrita_so():
     # duas, uma falha entre elas deixaria posicao sem stop.
     banco = SupabaseDuble()
     conta = ContaSimulada(
+        carteira="T1",
         par="BTCUSDT", caixa=100.0, quantidade=0.05,
         preco_entrada=80000.0, stop_loss=78000.0, take_profit=84000.0,
     )
@@ -193,7 +197,7 @@ def test_recusa_gravar_posicao_sem_stop():
     # Guarda de sanidade: uma posicao sem stop e invisivel pra regra 1 do
     # Risk Engine. Gravar tornaria o bug permanente.
     banco = SupabaseDuble()
-    conta = ContaSimulada(par="BTCUSDT", caixa=100.0, quantidade=0.05, stop_loss=None)
+    conta = ContaSimulada(carteira="T1", par="BTCUSDT", caixa=100.0, quantidade=0.05, stop_loss=None)
     try:
         salvar_conta(banco, conta)
     except ErroDeEstado as erro:
@@ -207,7 +211,7 @@ def test_posicao_zerada_pode_ficar_sem_stop():
     # Sem posicao nao ha o que proteger -- a guarda nao pode atrapalhar
     # o fechamento normal de uma operacao.
     banco = SupabaseDuble()
-    salvar_conta(banco, ContaSimulada(par="BTCUSDT", caixa=10500.0, quantidade=0.0))
+    salvar_conta(banco, ContaSimulada(carteira="T1", par="BTCUSDT", caixa=10500.0, quantidade=0.0))
     assert len(banco.escritas) == 1
 
 
@@ -215,7 +219,7 @@ def test_posicao_zerada_pode_ficar_sem_stop():
 
 def test_candle_novo_e_reivindicado():
     banco = SupabaseDuble()
-    id_decisao = reivindicar_candle(banco, "BTCUSDT", 1788490799999)
+    id_decisao = reivindicar_candle(banco, "T1", "BTCUSDT", 1788490799999)
     assert id_decisao == "id-da-linha"
     _, operacao, registro = banco.escritas[0]
     assert operacao == "insert"
@@ -228,7 +232,7 @@ def test_candle_repetido_levanta_ja_processado():
     # funcionando, e quem chama sai do ciclo sem operar.
     banco = SupabaseDuble(erro_de_escrita='23505 duplicate key value violates unique constraint')
     try:
-        reivindicar_candle(banco, "BTCUSDT", 1788490799999)
+        reivindicar_candle(banco, "T1", "BTCUSDT", 1788490799999)
     except CandleJaProcessado:
         pass
     else:
@@ -240,7 +244,7 @@ def test_candle_repetido_nao_vira_erro_generico():
     # como falha de infraestrutura -- e provavelmente tentaria de novo.
     banco = SupabaseDuble(erro_de_escrita="23505 duplicate key")
     try:
-        reivindicar_candle(banco, "BTCUSDT", 123)
+        reivindicar_candle(banco, "T1", "BTCUSDT", 123)
     except CandleJaProcessado:
         pass
     except ErroDeEstado:
@@ -252,7 +256,7 @@ def test_reivindicacao_acontece_antes_de_qualquer_decisao():
     # decidir. Se fosse depois, duas execucoes simultaneas poderiam as
     # duas decidir antes de qualquer uma gravar.
     banco = SupabaseDuble()
-    reivindicar_candle(banco, "BTCUSDT", 999)
+    reivindicar_candle(banco, "T1", "BTCUSDT", 999)
     tabela, _, registro = banco.escritas[0]
     assert tabela == "decisions"
     assert registro.get("llm_output") is None, "nao pode ter tese ainda"
@@ -262,14 +266,14 @@ def test_reivindicacao_acontece_antes_de_qualquer_decisao():
 # ------------------------------------------------------------- cadencia
 
 def test_sem_consulta_anterior_devolve_none():
-    assert ultima_consulta_ms(SupabaseDuble(), "BTCUSDT") is None
+    assert ultima_consulta_ms(SupabaseDuble(), "T1", "BTCUSDT") is None
 
 
 def test_ultima_consulta_vem_do_candle():
     banco = SupabaseDuble({"decisions": [
         {"candle_fechamento_em": 1788490799999, "created_at": "2026-09-04T03:00:00+00:00"},
     ]})
-    assert ultima_consulta_ms(banco, "BTCUSDT") == 1788490799999
+    assert ultima_consulta_ms(banco, "T1", "BTCUSDT") == 1788490799999
 
 
 def test_linha_antiga_cai_no_created_at():
@@ -278,7 +282,7 @@ def test_linha_antiga_cai_no_created_at():
     banco = SupabaseDuble({"decisions": [
         {"candle_fechamento_em": None, "created_at": "2026-09-04T03:00:00+00:00"},
     ]})
-    valor = ultima_consulta_ms(banco, "BTCUSDT")
+    valor = ultima_consulta_ms(banco, "T1", "BTCUSDT")
     assert valor is not None and valor > 0
 
 
@@ -289,7 +293,7 @@ def test_cadencia_sem_a_coluna_aponta_o_schema():
         erro_de_leitura="42703 column decisions.candle_fechamento_em does not exist"
     )
     try:
-        ultima_consulta_ms(banco, "BTCUSDT")
+        ultima_consulta_ms(banco, "T1", "BTCUSDT")
     except ErroDeEstado as erro:
         assert "schema.sql" in str(erro)
     else:
@@ -300,6 +304,7 @@ def test_cadencia_sem_a_coluna_aponta_o_schema():
 
 def test_conta_vira_estado_para_o_risk_engine():
     conta = ContaSimulada(
+        carteira="T1",
         par="BTCUSDT", caixa=100.0, quantidade=0.05,
         preco_entrada=80000.0, stop_loss=78000.0, take_profit=84000.0,
     )
@@ -310,7 +315,7 @@ def test_conta_vira_estado_para_o_risk_engine():
 
 
 def test_capital_total_soma_caixa_e_posicao():
-    conta = ContaSimulada(par="BTCUSDT", caixa=5000.0, quantidade=0.05)
+    conta = ContaSimulada(carteira="T1", par="BTCUSDT", caixa=5000.0, quantidade=0.05)
     assert conta.capital_total(80000.0) == 5000.0 + 0.05 * 80000.0
 
 

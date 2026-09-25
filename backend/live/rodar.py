@@ -1,115 +1,189 @@
 """
-Ponto de entrada do forward test -- passo 8a.
+Ponto de entrada do forward test -- seis carteiras a partir de setembro/2026.
 
-    python backend/live/rodar.py                 # todos os pares
-    python backend/live/rodar.py --pares BTCUSDT
-    python backend/live/rodar.py --ensaio        # nao grava nada
-    python backend/live/rodar.py --estrategia hibrida   # o motor antigo
+    python backend/live/rodar.py                          # as 6 carteiras, BTC e ETH
+    python backend/live/rodar.py --carteiras T1 G1        # so algumas
+    python backend/live/rodar.py --ensaio                 # mostra o estado e sai
 
-Roda um ciclo por par: le o estado do banco, confere o stop, decide,
-preenche a ordem de forma simulada ao preco real e grava tudo de volta.
+## As fases de um ciclo, nesta ordem
 
-## Duas estrategias, uma de cada vez
+0. Catalogo: grava as carteiras em `carteiras` (o site le de la).
+1. Dados: candles de 1h e 1d e o preco de cada par, UMA vez por par --
+   as seis carteiras veem o mesmo instantaneo.
+2. Sem IA: cada carteira x par reivindica o candle e confere stop e alvo.
+   T1, T2, G1 e G2 ja decidem aqui. Nenhuma IA e chamada antes disto:
+   um provedor lento nunca atrasa um stop.
+3. Painel: uma consulta por ativo por dia, as 3 vagas em paralelo, com
+   prazo proprio (6 min, e nunca depois dos 11 min do job).
+4. T3 e G3 decidem com o veredito do ultimo dia fechado.
+5. Explicacoes: as frases das operacoes, no fim, enquanto houver prazo.
+6. Conferencia: toda carteira x par tem de terminar com uma linha
+   concluida ou um JA_PROCESSADO legitimo.
 
-- `tendencia` (padrao desde 2026-09-22): a regra deterministica de
-  `estrategia/tendencia_diaria.py`. O LLM so escreve a explicacao de cada
-  operacao, depois dela gravada. Ver `live/ciclo_tendencia.py`.
-- `hibrida`: o motor de 2026-09-04 a 2026-09-21 (LLM gera a tese, Risk
-  Engine decide). Fica acessivel porque o historico gravado nesse periodo
-  saiu dele.
+## Codigo de saida
 
-As duas escrevem nas mesmas contas. Rodar as duas no mesmo agendamento
-seria duas estrategias disputando o mesmo caixa -- por isso e uma OU outra.
+Vermelho (1): falha de estado, banco ou Binance em qualquer carteira x
+par; falha na conferencia; erro de CONFIGURACAO de IA (chave invalida,
+pagamento, politica de dados, requisicao malformada). Verde (0): falhas
+transitorias de IA (429, 5xx, timeout, JSON invalido), sem quorum, falha
+do explicador. Um erro numa carteira x par nao derruba as outras.
 
-## O que este processo NAO faz
-
-Nao envia ordem pra corretora nenhuma. O preenchimento e nosso, ao preco
-real de mercado -- e isso e deliberado, nao uma limitacao. Ver
-`live/estado.py` para o motivo completo; em resumo, com ordem de verdade
-existiriam dois sistemas e uma janela entre eles, e aqui a execucao e a
-escrituracao sao a mesma escrita.
-
-## Um par quebrado nao derruba os outros
-
-Cada par roda no seu proprio try. Uma falha de rede no BTCUSDT nao pode
-impedir o ETHUSDT de ter o stop conferido -- essa e a operacao mais
-sensivel a atraso do sistema inteiro.
-
-O processo sai com codigo 1 se ALGUM par falhou, pra que o GitHub Actions
-marque a execucao em vermelho. Um ciclo silenciosamente quebrado durante
-dias e o pior resultado possivel: o forward test pareceria estar rodando
-e nao estaria.
+Nada e enviado a corretora: o preenchimento e simulado ao preco real.
 """
 
 from dotenv import load_dotenv
 load_dotenv()
 
-import argparse
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import sys  # noqa: E402
+import time  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from adapters.binance_adapter import BinanceAdapter  # noqa: E402
 from db.supabase_client import get_supabase_client  # noqa: E402
+from live.carteiras import CARTEIRAS, POR_ID, sincronizar_catalogo  # noqa: E402
+from live.ciclo_carteira import concluir_sem_painel, fase_painel, fase_sem_ia  # noqa: E402
 from live.estado import carregar_conta  # noqa: E402
+from live.explicador import Explicador, explicar_pendentes  # noqa: E402
+from live.mercado import buscar_mercado  # noqa: E402
+from live.painel import Painel, compras_do_painel_desde  # noqa: E402
 
 PARES_PADRAO = ["BTCUSDT", "ETHUSDT"]
+PRAZO_JOB_S = 13 * 60          # o workflow mata o job aos 15 min
+PRAZO_PAINEL_S = 6 * 60
+PAINEL_ATE_S = 11 * 60
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Ciclo ao vivo do forward test")
+    ap = argparse.ArgumentParser(description="Ciclo ao vivo das seis carteiras")
     ap.add_argument("--pares", nargs="+", default=PARES_PADRAO)
-    ap.add_argument("--estrategia", choices=("tendencia", "hibrida"), default="tendencia")
-    ap.add_argument(
-        "--ensaio", action="store_true",
-        help="mostra o estado atual e sai, sem decidir nem gravar nada",
-    )
+    ap.add_argument("--carteiras", nargs="+", default=[c.id for c in CARTEIRAS], choices=list(POR_ID))
+    ap.add_argument("--ensaio", action="store_true", help="mostra o estado atual e sai, sem gravar nada")
     args = ap.parse_args()
 
+    t0 = time.monotonic()
     supabase = get_supabase_client()
+    carteiras = [POR_ID[i] for i in args.carteiras]
 
     if args.ensaio:
-        for par in args.pares:
-            print(f"  {carregar_conta(supabase, par)}")
+        for c in carteiras:
+            for par in args.pares:
+                print(f"  {c.id} {carregar_conta(supabase, c.id, par)}")
         return 0
 
-    # `somente_dados_publicos`: o ciclo so LE mercado. Sem credencial da
-    # Binance em transito, e sem o endpoint que o CI nao alcanca.
+    falhas: list[str] = []
+
+    # ---------- 1. dados ----------
     binance = BinanceAdapter(somente_dados_publicos=True)
-    if args.estrategia == "tendencia":
-        from live.ciclo_tendencia import rodar_ciclo_tendencia
-        from live.explicador import Explicador
-        explicador = Explicador()
-
-        def ciclo(par):
-            return rodar_ciclo_tendencia(supabase, binance, explicador, par)
-    else:
-        from brain.llm_analyst import AnalistaLLM
-        from live.ciclo import rodar_ciclo
-        analista = AnalistaLLM()
-
-        def ciclo(par):
-            return rodar_ciclo(supabase, binance, analista, par)
-
-    print(f"estrategia: {args.estrategia}")
-    falhas = []
+    mercados = {}
     for par in args.pares:
         try:
-            print(f"  {ciclo(par)}", flush=True)
+            mercados[par] = buscar_mercado(binance, par)
         except Exception as erro:  # noqa: BLE001
-            falhas.append(par)
-            print(f"  [{par}] FALHA -- {type(erro).__name__}: {erro}", flush=True)
+            falhas.append(f"{par}: Binance -- {type(erro).__name__}: {erro}")
+            print(f"  [{par}] FALHA nos dados -- {erro}", flush=True)
+
+    # ---------- 2. sem IA ----------
+    resultados, pendentes = {}, []
+    for par, m in mercados.items():
+        for c in carteiras:
+            try:
+                r = fase_sem_ia(supabase, c, m)
+                resultados[(c.id, par)] = r
+                if r.pendente:
+                    pendentes.append((c, par, r))
+                else:
+                    print(f"  {r}", flush=True)
+            except Exception as erro:  # noqa: BLE001
+                falhas.append(f"{c.id} {par}: {type(erro).__name__}: {erro}")
+                print(f"  [{c.id} {par}] FALHA -- {type(erro).__name__}: {erro}", flush=True)
+
+    # ---------- 3. painel ----------
+    vereditos = {}
+    if pendentes:
+        agora_s = time.monotonic()
+        prazo = min(agora_s + PRAZO_PAINEL_S, t0 + PAINEL_ATE_S)
+        try:
+            import httpx
+            with httpx.Client(follow_redirects=True) as http:
+                res = Painel(supabase, http=http).rodar(
+                    {p: mercados[p] for p in {par for _, par, _ in pendentes}}, prazo, binance=binance)
+            vereditos = res.vereditos
+            print(f"  painel: {res.chamadas} chamadas; vereditos "
+                  + ", ".join(f"{p} {(v or {}).get('veredito', 'pendente')}" for p, v in vereditos.items()),
+                  flush=True)
+            for msg in res.erro_de_configuracao:
+                falhas.append(f"painel: {msg}")
+                print(f"  painel: ERRO DE CONFIGURACAO -- {msg}", flush=True)
+        except Exception as erro:  # noqa: BLE001 -- T3/G3 concluem sem decidir; o resto ja rodou
+            falhas.append(f"painel: {type(erro).__name__}: {erro}")
+            print(f"  painel: FALHA -- {type(erro).__name__}: {erro}", flush=True)
+
+    # ---------- 4. T3 e G3 ----------
+    for c, par, r in pendentes:
+        m = mercados[par]
+        try:
+            # Sem veredito do ultimo dia fechado (pendente, ou o painel
+            # falhou): `fase_painel` conclui como "painel pendente".
+            conta = r.pendente["conta"]
+            historico = None
+            if c.com_alvo and not conta.armado and conta.ultima_saida_em:
+                historico = compras_do_painel_desde(supabase, par, conta.ultima_saida_em)
+            final = fase_painel(supabase, c, m, r.pendente, vereditos.get(par), historico)
+        except Exception as erro:  # noqa: BLE001
+            falhas.append(f"{c.id} {par}: {type(erro).__name__}: {erro}")
+            print(f"  [{c.id} {par}] FALHA -- {type(erro).__name__}: {erro}", flush=True)
+            # Se a conta JA mudou (a compra/venda foi gravada e so a linha da
+            # decisao falhou), concluir como "nao operou" mentiria no
+            # historico: a linha fica 'processando' e o proximo ciclo varre.
+            try:
+                agora = carregar_conta(supabase, c.id, par)
+                antes = r.pendente["conta"]
+                if (agora.quantidade, agora.caixa) != (antes.quantidade, antes.caixa):
+                    print(f"  [{c.id} {par}] operacao gravada, decisao sem conclusao -- linha fica orfa", flush=True)
+                    continue
+                final = concluir_sem_painel(supabase, c, m, r.pendente, "falha ao aplicar o veredito")
+            except Exception:  # noqa: BLE001 -- linha fica orfa; o proximo ciclo varre de novo
+                continue
+        resultados[(c.id, par)] = final
+        print(f"  {final}", flush=True)
+
+    # ---------- 5. explicacoes ----------
+    try:
+        n = explicar_pendentes(supabase, Explicador(), POR_ID, datetime.now(timezone.utc),
+                               lambda: time.monotonic() < t0 + PRAZO_JOB_S - 45)
+        if n:
+            print(f"  explicacoes: {n} pedidas", flush=True)
+    except Exception as erro:  # noqa: BLE001 -- frase e opcional
+        print(f"  explicacoes: falha -- {erro}", flush=True)
+
+    # ---------- catalogo ----------
+    # Depois das fases, e so com as carteiras que concluiram o ciclo nos dois
+    # pares: `ativa_desde` (o D0 de cada uma) nao pode ser gravado numa
+    # execucao em que ela falhou -- por exemplo, antes da etapa B da migracao.
+    concluidas = [c.id for c in carteiras if mercados and all(
+        (r := resultados.get((c.id, par))) is not None and r.acao != "PENDENTE" for par in mercados)]
+    try:
+        sincronizar_catalogo(supabase, ativas=concluidas)
+    except Exception as erro:  # noqa: BLE001 -- o catalogo e so para o site
+        print(f"  aviso: catalogo nao sincronizado -- {erro}", flush=True)
+
+    # ---------- 6. conferencia ----------
+    for c in carteiras:
+        for par in mercados:
+            r = resultados.get((c.id, par))
+            if r is None or r.acao == "PENDENTE":
+                falhas.append(f"{c.id} {par}: ciclo sem conclusao")
 
     if falhas:
-        print(f"\n{len(falhas)} de {len(args.pares)} pares falharam: {falhas}")
+        print(f"\n{len(falhas)} falha(s):")
+        for f in falhas:
+            print(f"  - {f}")
         return 1
-
-    print("\n--- carteira ---")
-    for par in args.pares:
-        conta = carregar_conta(supabase, par)
-        estado = "posicionada" if conta.posicionada else "de fora"
-        print(f"  {par:<10} {estado:<12} caixa {conta.caixa:>10,.2f}")
+    print("\nok")
     return 0
 
 

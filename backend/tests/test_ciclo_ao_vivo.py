@@ -46,11 +46,17 @@ COLUNAS_REAIS = {
     "decisions": {
         "id", "created_at", "symbol", "market_snapshot", "features",
         "llm_output", "risk_result", "order_result", "status", "outcome",
-        "candle_fechamento_em",
+        "candle_fechamento_em", "carteira", "regra_versao",
     },
     "portfolio": {
         "asset", "quantity", "caixa", "updated_at",
         "preco_entrada", "stop_loss", "take_profit",
+        "carteira", "alvo_pct", "meta_entrada", "armado", "recuo_dia",
+        "ultima_saida_em", "ultima_saida_motivo", "entrada_em",
+    },
+    "patrimonio_diario": {
+        "carteira", "asset", "dia_utc", "patrimonio", "posicionada",
+        "preco_fechamento", "gravado_em",
     },
 }
 
@@ -165,6 +171,9 @@ class ConsultaDuble:
         if self._op == "select":
             return type("R", (), {"data": self.banco.linhas.get(self.tabela, [])})()
         if self._op == "insert" and self.banco.candle_duplicado:
+            # A linha que causou a duplicata ja existe no banco: fica
+            # visivel para a consulta que confere de qual carteira ela e.
+            self.banco.linhas.setdefault(self.tabela, []).append(dict(self._registro))
             raise RuntimeError("23505 duplicate key")
         # O duble conhece o schema REAL. Sem isto ele aceitava qualquer
         # chave, e um campo inexistente so aparecia contra o Supabase de
