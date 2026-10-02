@@ -16,11 +16,17 @@ name: Coleta e indicadores (cron)
 # vezes por hora so gravaria a mesma feature repetida. Ver render.yaml
 # para o raciocinio completo -- este arquivo espelha a mesma cadencia.
 #
-# `workflow_dispatch` permite disparar manualmente pela aba Actions, sem
-# esperar a proxima hora -- util pra testar depois de qualquer mudanca.
+# QUEM DISPARA E O SUPABASE, NAO O GITHUB (outubro/2026). O `schedule`
+# daqui passou a rodar a cada ~5h em vez de 1h, entao o pg_cron do
+# Supabase chama o `workflow_dispatch` aos :05 (supabase/schema.sql,
+# bloco AGENDADOR; ARCHITECTURE.md, "O disparo saiu do GitHub"). O
+# `schedule` saiu de proposito: em repo publico o GitHub desliga workflow
+# agendado depois de 60 dias sem commit, e o dispatch de um workflow
+# desligado falha.
+#
+# `workflow_dispatch` tambem permite disparar manualmente pela aba
+# Actions -- util pra testar depois de qualquer mudanca.
 on:
-  schedule:
-    - cron: "5 * * * *"
   workflow_dispatch:
 
 jobs:

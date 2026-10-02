@@ -661,6 +661,35 @@ Dois detalhes que a varredura exigiu decidir:
 
 Uma correção de leitura, registrada porque a primeira versão desta análise errou: **o backtest compara o stop com o FECHAMENTO do candle, não com a mínima.** Numa vela de 07/09 a mínima furou o stop (2.466,00 contra 2.470,26) mas o fechamento não (2.470,43) — o backtest também não teria vendido. O desvio real era o de fechamentos não conferidos, não o de mínimas ignoradas.
 
+#### O disparo saiu do GitHub (outubro/2026)
+
+O agendamento piorou. Nos 7 dias até 02/10, medido pela API do Actions e conferido 1:1 contra `decisions.created_at`:
+
+| | Pedido | Medido |
+|---|---|---|
+| Execuções por dia | 24 | **~4** |
+| Intervalo mediano | 1h | **5,4h** |
+| Maior buraco | — | **8,6h** |
+
+Todas as execuções terminaram verdes: o problema é o evento `schedule` ser criado com horas de atraso, ou nem ser criado. É geral no GitHub desde 26/08/2026 ([community #207346](https://github.com/orgs/community/discussions/207346)), sem resposta oficial. No mesmo relato, um `workflow_dispatch` começa em segundos.
+
+A varredura de fechamentos já protegia os stops, mas a **entrada** é preenchida ao preço do instante em que o job acorda. Com até 8h de atraso, isso vira deslize grande e com ruído, contra um backtest que entra na abertura do candle seguinte.
+
+**A correção:** o pg_cron do Supabase chama a API `workflow_dispatch` aos :05 (coleta) e aos :10 (forward test), e o GitHub continua executando. É o mesmo horário que o `schedule` pedia. Detalhes:
+
+- O token é um PAT *fine-grained*, só deste repositório e só com "Actions: read and write". Ele fica no Vault com o nome `github_actions_dispatch` e nunca no repositório. A função e os jobs estão no bloco AGENDADOR de `supabase/schema.sql`.
+- O `schedule` saiu dos dois workflows. O repositório virou público em 02/10 (minutos ilimitados), e em repositório público o GitHub **desliga workflow agendado depois de 60 dias sem commit**. Um forward test que não deve ser mexido por meses cairia exatamente nisso, e o dispatch de um workflow desligado falha.
+- Rodar duas vezes na mesma hora é inofensivo: o forward test reivindica o candle pelo índice único, e a coleta só grava uma linha `skeleton_check` a mais.
+
+Ponto de falha conhecido: **o PAT expira**. Quando expirar, os dois workflows param juntos, e o GitHub manda e-mail uma semana antes. Para conferir a saúde do agendador:
+
+```sql
+-- o pg_cron rodou? (falha aqui = token ausente no Vault)
+select jobid, status, return_message, start_time from cron.job_run_details order by start_time desc limit 10;
+-- o GitHub aceitou? (esperado 204; 401 = token expirado/revogado; respostas guardadas por 6h)
+select id, status_code, content, created from net._http_response order by created desc limit 10;
+```
+
 #### Critério de leitura do forward test — fixado ANTES de medir
 
 Registrado aqui de propósito, antes de a medição começar, porque depois de ver o número qualquer critério vira interpretação conveniente.

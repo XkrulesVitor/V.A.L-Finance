@@ -35,12 +35,14 @@ name: Forward test (6 carteiras)
 # regra de tendencia so muda de ideia uma vez por dia (fechamento UTC),
 # mas descobrir um stop com um dia de atraso nao e aceitavel.
 #
+# QUEM DISPARA E O SUPABASE, NAO O GITHUB (outubro/2026): o pg_cron chama
+# o `workflow_dispatch` aos :10, com os inputs no default. O `schedule`
+# saiu pelo mesmo motivo do workflow de coleta -- ver o comentario la.
+#
 # Sobre a Binance: o ciclo usa `somente_dados_publicos`, entao sai pelo
 # `data-api.binance.vision`. Os outros endpoints respondem 451 pro IP do
 # runner. Nao troque isso sem reler o workflow de coleta.
 on:
-  schedule:
-    - cron: "10 * * * *"
   workflow_dispatch:
     inputs:
       pares:

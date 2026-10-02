@@ -315,6 +315,66 @@ drop policy if exists "leitura publica painel_veredito" on painel_veredito;
 create policy "leitura publica painel_veredito" on painel_veredito for select using (true);
 grant select on carteiras, patrimonio_diario, painel_entradas, painel_votos, painel_veredito to anon, authenticated;
 
+-- =====================================================================
+-- AGENDADOR (outubro/2026) -- quem dispara os workflows do GitHub.
+--
+-- O `schedule` do GitHub Actions passou a rodar a cada ~5h em vez de 1h
+-- (ARCHITECTURE.md, "O disparo saiu do GitHub"). O pg_cron daqui chama a
+-- API `workflow_dispatch` na hora certa, e o GitHub continua executando.
+--
+-- O token NAO esta neste arquivo. Ele e um PAT fine-grained (so este
+-- repositorio, so "Actions: read and write"), guardado no Vault pelo
+-- painel do Supabase com o nome `github_actions_dispatch`. Sem ele a
+-- funcao falha alto, e a falha aparece em `cron.job_run_details`.
+-- =====================================================================
+create extension if not exists pg_cron;
+create extension if not exists pg_net with schema extensions;
+
+-- Fora do `public` de proposito: o PostgREST nao expoe este schema, entao
+-- ninguem dispara workflow pela API do site.
+create schema if not exists agendador;
+revoke all on schema agendador from public, anon, authenticated;
+
+create or replace function agendador.disparar_workflow(arquivo text)
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  token text;
+begin
+  select decrypted_secret into token
+  from vault.decrypted_secrets
+  where name = 'github_actions_dispatch';
+
+  if token is null then
+    raise exception 'agendador: segredo github_actions_dispatch ausente no Vault; % nao disparado', arquivo;
+  end if;
+
+  return net.http_post(
+    url := 'https://api.github.com/repos/XkrulesVitor/V.A.L-Finance/actions/workflows/' || arquivo || '/dispatches',
+    body := '{"ref": "master"}'::jsonb,
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || token,
+      'Accept', 'application/vnd.github+json',
+      'X-GitHub-Api-Version', '2022-11-28',
+      'User-Agent', 'val-finance-agendador',
+      'Content-Type', 'application/json'
+    ),
+    timeout_milliseconds := 10000
+  );
+end;
+$$;
+
+revoke all on function agendador.disparar_workflow(text) from public, anon, authenticated;
+
+-- Mesma cadencia que os workflows tinham no `schedule` (UTC): coleta aos
+-- :05, forward test aos :10. `cron.schedule` com nome repetido substitui
+-- o job, entao rodar este arquivo de novo nao duplica nada.
+select cron.schedule('disparar-coleta', '5 * * * *', $$select agendador.disparar_workflow('coleta.yml')$$);
+select cron.schedule('disparar-forward-test', '10 * * * *', $$select agendador.disparar_workflow('forward-test.yml')$$);
+
 -- ---------- Etapa B (rodar SO depois do deploy do codigo multi-carteira) ----------
 -- begin;
 --   drop index if exists decisions_par_candle_unico;
