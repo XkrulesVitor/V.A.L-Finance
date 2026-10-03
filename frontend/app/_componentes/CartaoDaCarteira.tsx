@@ -37,6 +37,8 @@ export function CartaoDaCarteira({ cartao }: { cartao: CartaoDeCarteira }) {
                   {usd(Math.abs(delta))}
                 </span>
               </>
+            ) : c.ativa_desde ? (
+              "nenhuma compra ainda"
             ) : (
               "começando"
             )}
@@ -64,7 +66,8 @@ export function CartaoDaCarteira({ cartao }: { cartao: CartaoDeCarteira }) {
                 <span className="w-9 text-[13px] text-vale-tinta">{nome}</span>
                 <span className="text-[12px] text-vale-tinta-3">{a.comprada ? "comprado" : "em caixa"}</span>
               </div>
-              <div className="num text-right text-[12px]">
+              <div className="num min-w-0 truncate text-right text-[12px]">
+                {!a.comprada && a.espera && <span className="text-vale-tinta-3">{a.espera}</span>}
                 {a.comprada && a.emAbertoPct !== null && (
                   <span className={corAberto}>
                     {sinal(a.emAbertoPct)}

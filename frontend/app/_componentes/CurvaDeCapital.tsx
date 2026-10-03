@@ -61,8 +61,13 @@ export function CurvaDeCapital({ pontos, inicial, altura = 200 }: Props) {
   const area = `${linha} L${px(pontos.length - 1)} ${H - B} L${px(0)} ${H - B} Z`;
 
   const fim = pontos[pontos.length - 1].equity;
-  const subiu = fim >= inicial;
-  const cor = subiu ? "var(--color-vale-alta)" : "var(--color-vale-baixa)";
+  // Parada no inicial (carteira que ainda não comprou) não é ganho: neutra.
+  const cor =
+    Math.abs(fim - inicial) < 0.005
+      ? "var(--color-vale-tinta-3)"
+      : fim > inicial
+        ? "var(--color-vale-alta)"
+        : "var(--color-vale-baixa)";
   const variacao = ((fim / inicial - 1) * 100).toFixed(2);
 
   const idFill = "curva-preenchimento";
@@ -144,7 +149,7 @@ export function CurvaDeCapital({ pontos, inicial, altura = 200 }: Props) {
           className="num"
           fontWeight="500"
         >
-          {subiu ? "+" : ""}
+          {fim > inicial ? "+" : ""}
           {variacao}%
         </text>
 

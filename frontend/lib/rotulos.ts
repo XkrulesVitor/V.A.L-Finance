@@ -143,6 +143,49 @@ export function resumirLeitura(f: Features | null | undefined, posicionada = fal
   }
 }
 
+/**
+ * O que falta para comprar, em até ~24 caracteres: o lado direito de uma
+ * moeda EM CAIXA no cartão da página inicial. Sem isto, uma carteira toda em
+ * caixa (a Repique, à espera do RSI) parecia parada, embora decida a cada
+ * hora. `pode_entrar === false` é a trava de reentrada ou o rearme da meta.
+ */
+export function esperaNoCartao(f: Features | null | undefined): string | null {
+  if (!f) return null;
+  const espera = f.pode_entrar === false;
+  const dec1 = (x: number) => x.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  switch (regraDa(f)) {
+    case "reguas": {
+      const v = num(f.votos);
+      if (v === null) return "sem histórico";
+      return espera ? `${v} de 6 · em espera` : `${v} de 6 · compra com 4`;
+    }
+    case "painel": {
+      const v = typeof f.veredito === "string" ? f.veredito : null;
+      if (!v) return "aguardando o Conselho";
+      if (v === "sem_quorum") return "sem quórum";
+      return `Conselho: ${VEREDITO[v]?.rotulo ?? v}${espera ? " · em espera" : ""}`;
+    }
+    case "tartarugas": {
+      const c = num(f.fechamento_diario);
+      const max = num(f.maxima_55d);
+      if (f.pronta === false || c === null || max === null) return "sem histórico";
+      if (espera) return "em espera";
+      if (f.rompeu_alta === true) return "rompeu a máxima";
+      return `faltam ${dec1(Math.abs(max / c - 1) * 100)}% p/ romper`;
+    }
+    case "rsi2": {
+      const r = num(f.rsi2);
+      if (f.pronta === false || r === null) return "sem histórico";
+      const rsi = `RSI ${dec1(r)}`;
+      if (espera) return `${rsi} · em espera`;
+      if (f.em_alta_longa === false) return `${rsi} · sem alta longa`;
+      return `${rsi} · compra < 10`;
+    }
+    default:
+      return null;
+  }
+}
+
 /** A mesma leitura, em poucos caracteres, para a coluna do fluxo do Motor. */
 export function leituraCurta(f: Features | null | undefined): { texto: string; titulo: string } | null {
   if (!f) return null;

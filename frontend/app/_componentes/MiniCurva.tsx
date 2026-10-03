@@ -26,7 +26,13 @@ export function MiniCurva({ pontos, inicial }: { pontos: PontoCurva[]; inicial: 
   const py = (v: number) => M + (1 - (v - min) / faixa) * (H - 2 * M);
   const linha = pontos.map((p, i) => `${i ? "L" : "M"}${px(i).toFixed(1)} ${py(p.equity).toFixed(1)}`).join(" ");
   const fim = valores[valores.length - 1];
-  const cor = fim >= inicial ? "var(--color-vale-alta)" : "var(--color-vale-baixa)";
+  // Parada no inicial (carteira que ainda não comprou) não é ganho: neutra.
+  const cor =
+    Math.abs(fim - inicial) < 0.005
+      ? "var(--color-vale-tinta-3)"
+      : fim > inicial
+        ? "var(--color-vale-alta)"
+        : "var(--color-vale-baixa)";
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="shrink-0" aria-hidden="true">

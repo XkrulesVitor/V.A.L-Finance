@@ -30,7 +30,7 @@ import {
   precosAoVivo,
   ultimaLeitura,
 } from "@/lib/carteira";
-import { type Resumo, resumirLeitura } from "@/lib/rotulos";
+import { esperaNoCartao } from "@/lib/rotulos";
 
 type Cliente = ReturnType<typeof getSupabaseClient>;
 
@@ -197,7 +197,8 @@ export type AtivoNoCartao = {
   meta: number | null;
   metaPct: number | null;
   armada: boolean | null;
-  leitura: Resumo | null;
+  /** Em caixa: o que a regra viu e o que falta para comprar. */
+  espera: string | null;
 };
 
 export type CartaoDeCarteira = {
@@ -243,7 +244,7 @@ function montarCartao(
             (conta?.take_profit && conta.preco_entrada ? (conta.take_profit / conta.preco_entrada - 1) * 100 : null))
           : null,
       armada: comMeta ? (conta?.armado ?? true) : null,
-      leitura: resumirLeitura(leituras.get(`${carteira.id}:${par}`)?.features, comprada),
+      espera: comprada ? null : esperaNoCartao(leituras.get(`${carteira.id}:${par}`)?.features),
     };
   });
 
